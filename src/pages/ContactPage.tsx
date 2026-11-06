@@ -36,6 +36,16 @@ export default function ContactPage() {
           Contact the agency (or landlord) that manages the listing; the listing agent can put you in touch. They
           manage that information, as the Privacy Policy explains.
         </p>
+        <p>
+          Already renting through an agency on Lekaya? Sign in to report maintenance or upload proof of payment.{' '}
+          <Link
+            className="text-primary underline"
+            to={`/login?next=${encodeURIComponent('/workspace/portals/tenant')}`}
+          >
+            Sign in
+          </Link>
+          .
+        </p>
       </Section>
       <Section title="List with us">
         <p>

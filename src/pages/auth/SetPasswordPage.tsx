@@ -5,7 +5,7 @@ import { AuthField, AuthShell } from '../../components/auth/AuthShell'
 import { PasswordField } from '../../components/auth/PasswordField'
 import { Button } from '../../components/ui'
 import { setPasswordWithToken } from '../../lib/api/accountEmailApi'
-import { MIN_PASSWORD_LENGTH } from '../../lib/auth/passwordPolicy'
+import { MIN_PASSWORD_LENGTH, passwordMinLengthHint } from '../../lib/auth/passwordPolicy'
 
 /** Used by both /reset-password (forgot password) and /set-password (new account or staff reset). */
 export default function SetPasswordPage({ mode }: { mode: 'reset' | 'setup' }) {
@@ -65,11 +65,11 @@ export default function SetPasswordPage({ mode }: { mode: 'reset' | 'setup' }) {
         </div>
       ) : (
         <form onSubmit={submit} className="space-y-4">
-          <AuthField label="New password" htmlFor="set-password">
-            <PasswordField id="set-password" value={password} onChange={setPassword} autoComplete="new-password" required />
+          <AuthField label="New password" htmlFor="set-password" hint={passwordMinLengthHint()}>
+            <PasswordField id="set-password" value={password} onChange={setPassword} autoComplete="new-password" required minLength={MIN_PASSWORD_LENGTH} />
           </AuthField>
           <AuthField label="Type it again" htmlFor="set-password-confirm">
-            <PasswordField id="set-password-confirm" value={confirm} onChange={setConfirm} autoComplete="new-password" required />
+            <PasswordField id="set-password-confirm" value={confirm} onChange={setConfirm} autoComplete="new-password" required minLength={MIN_PASSWORD_LENGTH} />
           </AuthField>
           {error ? (
             <p className="text-sm text-red-700" role="alert">
