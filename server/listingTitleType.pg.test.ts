@@ -311,9 +311,9 @@ describe.skipIf(!url)('listing title/type confirm (Test 6, A2, A15)', () => {
     expect(notifAfter).toBe(notifBefore)
   })
 
-  it('D1: a garden-flat title with no chosen type publishes without a confirm', async () => {
+  it('D1: Garden flat behind main house with no chosen type publishes without a confirm', async () => {
     const { type: _omit, ...noType } = payload({
-      title: 'Garden flat to rent in Walmer',
+      title: 'Garden flat behind main house',
       status: 'Published',
       statusKey: 'PUBLISHED',
     })
