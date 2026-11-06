@@ -1,29 +1,30 @@
 /**
- * The company behind lekayarentals.site, as named in the Privacy Policy and
- * Terms of Service (src/pages/legal). Fill these in before launch: a blank
- * field shows on those pages as "to be confirmed".
+ * Who runs lekayarentals.site, as named in the Privacy Policy and Terms of
+ * Service (src/pages/legal). A blank field shows on those pages as "to be
+ * confirmed". Today Lekaya Rentals is run by Samuel as a sole proprietor (no
+ * company yet): when a company is registered, change legalName and
+ * registrationNumber (and the address if it moves).
  */
 export const LEGAL_ENTITY = {
   /** Trading name shown to users. */
   brand: 'Lekaya Rentals',
-  /** Registered company name, e.g. "Lekaya Rentals (Pty) Ltd". */
-  legalName: '',
-  /** CIPC registration number. */
-  registrationNumber: '',
-  /** Physical / registered address. */
-  address: '',
+  /** The legal person behind the brand: a sole proprietor's full name, later the registered company name. */
+  legalName: 'Samuel Koranteng Amoah Bampo',
+  /** CIPC registration number, or exactly "not applicable" for a sole proprietor. */
+  registrationNumber: 'not applicable',
+  /** Physical / registered address (a town, PO Box or business address is fine). */
+  address: 'Port Elizabeth (Gqeberha), Eastern Cape, South Africa',
   /** POPIA Information Officer (name), registered with the Information Regulator. */
-  informationOfficer: '',
+  informationOfficer: 'Samuel Koranteng Amoah Bampo',
   /** Where privacy requests and complaints go. */
-  privacyEmail: 'info@lekayarentals.site',
+  privacyEmail: 'samuel@lekayarentals.site',
   /** General support address. */
   supportEmail: 'info@lekayarentals.site',
   /**
-   * Date these documents take effect (YYYY-MM-DD). Pending: the values PR sets it to the
-   * publish date of the final reviewed text (Jim #118 C5). Blank shows "to be confirmed".
+   * Date these documents take effect, as shown on the pages. Blank shows "to be confirmed".
    * Not one of the gate's 6 required fields (Michael #118 ruling 5 keeps the spec's 6).
    */
-  effectiveDate: '',
+  effectiveDate: '6 November 2026',
   website: 'https://lekayarentals.site',
 } as const
 

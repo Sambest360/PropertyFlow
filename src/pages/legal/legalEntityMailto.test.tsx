@@ -73,9 +73,11 @@ describe('Angela #118 C5 / F7: the pages mark every value the completeness check
     expect(privacy).not.toContain(`>${value}<`)
   })
 
-  it('registrationNumber "not applicable" is shown as written (a sole proprietor has none)', async () => {
+  it('registrationNumber "not applicable" reads as a sole proprietor with no company number', async () => {
     const { privacy } = await render({ ...FULL, registrationNumber: 'not applicable' })
-    expect(privacy).toContain('(not applicable)')
+    // Shown in words: a sole proprietor has no company registration number.
+    expect(privacy).toContain('(sole proprietor, no company registration number)')
+    expect(privacy).not.toContain('(not applicable)')
     expect(privacy).not.toContain('legal-missing-registrationNumber')
   })
 })

@@ -9,11 +9,12 @@ import TermsPage from './TermsPage'
 const html = (page: React.ReactElement) => renderToStaticMarkup(<MemoryRouter>{page}</MemoryRouter>)
 
 describe('legal pages', () => {
-  it('privacy policy renders and marks company details that are still blank', () => {
+  it('privacy policy renders with the operator details filled in', () => {
     const out = html(<PrivacyPage />)
     expect(out).toContain('Privacy Policy</h1>')
     expect(out).toContain('Protection of Personal Information Act')
-    expect(out).toContain('data-testid="legal-missing-informationOfficer"')
+    expect(out).toContain('Samuel Koranteng Amoah Bampo')
+    expect(out).not.toContain('legal-missing-')
     expect(out).toContain('https://inforegulator.org.za')
   })
 
@@ -38,30 +39,41 @@ describe('legal pages', () => {
   })
 
   it('every company detail a legal page marks as "to be confirmed" is one the completeness check requires', () => {
+    // The live details are all filled in now, so blank them here to see every marker.
     const markers = new Set<string>()
     for (const out of [html(<PrivacyPage />), html(<TermsPage />)]) {
       for (const m of out.matchAll(/data-testid="legal-missing-([A-Za-z]+)"/g)) markers.add(m[1])
     }
-    expect(markers.size).toBeGreaterThan(0)
+    // With every detail filled in, the pages show no marker at all.
+    expect(legalEntityComplete()).toBe(true)
+    expect(markers.size).toBe(0)
     // effectiveDate shows a marker too but is deliberately not one of the gate's 6 fields
     // (Michael #118 ruling 5 keeps the spec's 6); the values PR sets it (Jim C5).
     const NOT_GATED = ['effectiveDate']
     for (const field of markers) if (!NOT_GATED.includes(field)) expect(LEGAL_REQUIRED_FIELDS, field).toContain(field)
   })
 
-  it('Angela #118 v2 (B08): an unset detail shows its label and the words "to be confirmed", not just the test id', () => {
+  it('Angela #118 v2 (B08): no page shows "to be confirmed" now that every detail is filled in', () => {
     for (const out of [html(<PrivacyPage />), html(<TermsPage />), html(<ContactPage />)]) {
-      const markers = out.match(/<span[^>]*data-testid="legal-missing-[A-Za-z]+"[^>]*>[^<]*<\/span>/g) ?? []
-      expect(markers.length).toBeGreaterThan(0)
-      for (const m of markers) expect(m, m).toMatch(/\[[^\]]+ to be confirmed\]/)
+      expect(out).not.toMatch(/to be confirmed/)
+      expect(out).not.toContain('legal-missing-')
     }
   })
 
-  it('Michael #118 ruling 5: the effective date is pending, shown "to be confirmed", never a made-up date', () => {
-    expect(LEGAL_ENTITY.effectiveDate).toBe('')
+  it('Michael #118 ruling 5: the effective date is the one Samuel set (6 Nov 2026), never a made-up date', () => {
+    expect(LEGAL_ENTITY.effectiveDate).toBe('6 November 2026')
     for (const out of [html(<PrivacyPage />), html(<TermsPage />)]) {
-      expect(out).toContain('data-testid="legal-missing-effectiveDate"')
+      expect(out).toContain('Effective 6 November 2026.')
       expect(out).not.toContain('2026-10-30')
+    }
+  })
+
+  it('a sole proprietor: named in full, no company number, the town as address', () => {
+    for (const out of [html(<PrivacyPage />), html(<TermsPage />)]) {
+      expect(out).toContain(
+        'is operated by Samuel Koranteng Amoah Bampo (sole proprietor, no company registration number), Port Elizabeth (Gqeberha), Eastern Cape, South Africa.',
+      )
+      expect(out).not.toContain('(not applicable)')
     }
   })
 
@@ -99,9 +111,9 @@ describe('legal pages', () => {
     expect(section).not.toMatch(/responsible party[^.<]{0,40}\balso\b/i)
     expect(section).not.toMatch(/decides? why and how/i)
     expect(section).not.toMatch(/(?:<p[^>]*>|[.;]\s+)(we are|we're|lekaya rentals is|lekaya is)\b[^.<]{0,40}responsible party for (the |your |all )?(personal information|enquir|rental|application|lease|agency)/i)
-    expect(section).toContain('data-testid="legal-missing-informationOfficer"')
-    // privacyEmail is filled in (info@lekayarentals.site), so it links instead of a marker.
-    expect(section).toContain('mailto:info@lekayarentals.site')
+    // The Information Officer and privacy email are filled in, so they show as text and a link.
+    expect(section).toContain('Our Information Officer is Samuel Koranteng Amoah Bampo')
+    expect(section).toContain('mailto:samuel@lekayarentals.site')
     // Jim #118 C3: the public listing shows only "listed by <agent>", no agency name,
     // so the page must not promise that the agency is named there.
     // Michael #118 ruling 3: true today (listings show only the agent), so "manages the listing".

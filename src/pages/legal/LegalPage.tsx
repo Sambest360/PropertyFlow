@@ -75,7 +75,15 @@ export function LegalPage({
         <h1 className="font-display text-3xl font-semibold text-ink">{title}</h1>
         <p className="text-sm text-ink-500">
           Effective <Entity field="effectiveDate" />. {LEGAL_ENTITY.brand} is operated by <Entity field="legalName" />{' '}
-          (<Entity field="registrationNumber" />), <Entity field="address" />.
+          {/^not applicable$/i.test(LEGAL_ENTITY.registrationNumber.trim()) ? (
+            // A sole proprietor has no company number: say so in words.
+            <>(sole proprietor, no company registration number)</>
+          ) : (
+            <>
+              (<Entity field="registrationNumber" />)
+            </>
+          )}
+          , <Entity field="address" />.
         </p>
       </header>
       {children}
