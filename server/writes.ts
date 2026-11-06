@@ -1253,7 +1253,7 @@ async function upsertProperty(
     }
   }
 
-  await withTransaction(async () => {
+  const writeUnitRow = async () => {
   await query(
     `INSERT INTO units (
        id, building_id, client_id, unit_number, property_type, square_meters, bedrooms, bathrooms, parking,
@@ -1351,7 +1351,9 @@ async function upsertProperty(
       warning: pendingTitleTypeConfirm.warning,
     })
   }
-  })
+  }
+  if (pendingTitleTypeConfirm) await withTransaction(writeUnitRow)
+  else await writeUnitRow()
   await revokeApplyOverridesForLetStatus(uuid, statusKey)
   return uuid
 }

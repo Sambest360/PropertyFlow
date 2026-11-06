@@ -77,11 +77,9 @@ import {
   clearUnfurnishedListingPreset,
   draftAfterAmenitiesChange,
   draftFromProperty,
-  defaultWizardRooms,
   emptyWizardAsset,
   type PropertyWizardDraft as PropertyDraft,
   type WizardAssetDraft,
-  type WizardRoomDraft as RoomDraft,
   wizardCreateIdempotencyKey,
   INITIAL_WIZARD_PROPERTY_TYPE,
   suggestedTypeFromTitleHint,
@@ -169,10 +167,6 @@ function roomCountsForKind(
     return { beds: 0, baths: current.baths > 0 ? current.baths : 1 }
   }
   return { beds: 0, baths: 0 }
-}
-
-function defaultRooms(): RoomDraft[] {
-  return defaultWizardRooms()
 }
 
 export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string }) {

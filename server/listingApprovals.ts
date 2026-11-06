@@ -121,33 +121,6 @@ async function superActor(c: Parameters<typeof resolveRequestActor>[0]) {
   return actor
 }
 
-export function registerListingApprovalRoutes(app: Hono) {
-  app.get('/api/admin/listing-approvals', async (c) => {
-    try {
-      await superActor(c)
-      await ensureListingApprovalsTable()
-      const status = c.req.query('status') || 'pending'
-      const rows = await query(
-        `SELECT a.unit_id::text AS "unitId", a.status, a.requested_at AS "requestedAt", a.reviewed_at AS "reviewedAt", a.note,
-                u.title, u.rent, u.price, u.listing_type AS "listingType", u.images, u.formatted_address AS address,
-                c.company_name AS agency, trim(coalesce(r.first_name,'') || ' ' || coalesce(r.last_name,'')) AS "requestedBy"
-           FROM listing_approvals a
-           JOIN units u ON u.id = a.unit_id
-           LEFT JOIN clients c ON c.id = u.client_id
-           LEFT JOIN users r ON r.id = a.requested_by
-          WHERE ($1 = 'all' OR a.status = $1)
-          ORDER BY a.requested_at DESC
-          LIMIT 200`,
-        [status],
-      )
-      return c.json({ ok: true, items: rows }, 200, { 'Cache-Control': 'no-store' })
-    } catch (err) {
-      const s = (err as { status?: number }).status ?? 500
-      return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) }, s as 401)
-    }
-  })
-
-
 export async function applyListingApproval(opts: {
   unitId: string
   decision: 'approved' | 'declined'
@@ -187,6 +160,33 @@ export async function applyListingApproval(opts: {
   )
   return { ok: true, status: decision }
 }
+
+export function registerListingApprovalRoutes(app: Hono) {
+  app.get('/api/admin/listing-approvals', async (c) => {
+    try {
+      await superActor(c)
+      await ensureListingApprovalsTable()
+      const status = c.req.query('status') || 'pending'
+      const rows = await query(
+        `SELECT a.unit_id::text AS "unitId", a.status, a.requested_at AS "requestedAt", a.reviewed_at AS "reviewedAt", a.note,
+                u.title, u.rent, u.price, u.listing_type AS "listingType", u.images, u.formatted_address AS address,
+                c.company_name AS agency, trim(coalesce(r.first_name,'') || ' ' || coalesce(r.last_name,'')) AS "requestedBy"
+           FROM listing_approvals a
+           JOIN units u ON u.id = a.unit_id
+           LEFT JOIN clients c ON c.id = u.client_id
+           LEFT JOIN users r ON r.id = a.requested_by
+          WHERE ($1 = 'all' OR a.status = $1)
+          ORDER BY a.requested_at DESC
+          LIMIT 200`,
+        [status],
+      )
+      return c.json({ ok: true, items: rows }, 200, { 'Cache-Control': 'no-store' })
+    } catch (err) {
+      const s = (err as { status?: number }).status ?? 500
+      return c.json({ ok: false, message: err instanceof Error ? err.message : String(err) }, s as 401)
+    }
+  })
+
 
   app.post('/api/admin/listing-approvals/:unitId', async (c) => {
     try {
