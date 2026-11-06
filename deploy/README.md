@@ -19,9 +19,10 @@
 - `nginx-security-headers.conf` is installed at http level as
   `/etc/nginx/conf.d/propertyflow-security-headers.conf` (see its first lines).
 - The template includes the same file (`include conf.d/propertyflow-security-headers.conf;`)
-  in the 443 server block and inside `location /assets/`, the only location with
-  its own `add_header`. nginx drops the outer headers in any block that has its
-  own `add_header`, so each such block must re-include them.
+  in the 443 server block and inside every 443 location that has its own
+  `add_header` (`location /assets/` and `location = /index.html`). nginx drops
+  the outer headers in any block that has its own `add_header`, so each such
+  block must re-include them.
 - HSTS is owned by that nginx snippet: `max-age=31536000; includeSubDomains`, no
   `preload`. The Node API (Hono) does not send HSTS, and the template does not
   set it, so it is sent once. Preload is LATER, after the 301 is proven.
@@ -35,9 +36,10 @@
   Encrypt follows the :80 301 to https, and the 443 block serves that folder:
   `root /var/www/propertyflow/dist;` in the 443 block of the live site file
   `/etc/nginx/sites-available/propertyflow` after certbot's edit). It is
-  fragile: `deploy/update.sh` line 7 runs `vite build`, which empties and
-  rebuilds `dist/`, so a renewal that runs during a deploy can lose its
-  challenge file. Any other `-w` folder is not served by nginx here.
+  fragile: `deploy/update.sh` and `deploy/release.sh` now build into
+  `dist-next` and swap, so they no longer empty live `dist/` for the length of
+  the compile, but a renewal that runs during the brief directory swap can
+  still lose a challenge file. Any other `-w` folder is not served by nginx here.
 - Which authenticator the live box renews with is UNVERIFIED. Suggested check for
   Stanley (names only, no file contents): run `certbot renew --dry-run` and name
   the authenticator it uses (for example from
@@ -57,3 +59,10 @@
   `include conf.d/propertyflow-security-headers.conf;` inside the 443
   `location /assets/` block of `/etc/nginx/sites-available/propertyflow` (as in
   the template), then run `nginx -t` and reload.
+- As of 6 Nov 2026 the live installed file (after certbot) was also missing
+  `location /assets/` `try_files $uri =404`, so a missing hashed file fell
+  through the SPA fallback and returned 200 `text/html`. Certbot edits that
+  installed file in place, so after any later certbot run the operator must
+  re-check both `location /assets/` (`try_files $uri =404`) and
+  `location = /index.html` (no-cache, and the security-header include on 443)
+  against the template, then `nginx -t` and reload.

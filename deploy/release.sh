@@ -43,18 +43,10 @@ echo "== Build"
 npm ci
 # Build next to the live site, then swap it in: building straight into dist/
 # left the site without its files for the whole build (errors and endless
-# loading for anyone using it during a release).
-rm -rf dist-next
-BUILD_OUT_DIR=dist-next NODE_OPTIONS=--max-old-space-size=2048 npx vite build
-# Keep the previous release's page files for a week, so a tab opened before
-# this release can still load the pages it asks for.
-if [ -d dist/assets ]; then
-  cp -rpn dist/assets/. dist-next/assets/ 2>/dev/null || true
-  find dist-next/assets -type f -mtime +7 -delete
-fi
-rm -rf dist-prev
-[ -d dist ] && mv dist dist-prev
-mv dist-next dist
+# loading for anyone using it during a release). Shared with deploy/update.sh.
+# shellcheck source=deploy/build-and-swap-dist.sh
+. deploy/build-and-swap-dist.sh
+propertyflow_build_and_swap_dist
 
 echo "== Crons"
 bash deploy/crons.sh
