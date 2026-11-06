@@ -4,6 +4,9 @@ set -euo pipefail
 cd /var/www/propertyflow
 git pull
 npm ci
-NODE_OPTIONS=--max-old-space-size=2048 npx vite build
+# Same dist-next build + safe swap as release.sh (do not empty live dist/).
+# shellcheck source=deploy/build-and-swap-dist.sh
+. deploy/build-and-swap-dist.sh
+propertyflow_build_and_swap_dist
 pm2 restart propertyflow-api
 echo "Updated."
