@@ -19,6 +19,14 @@ const PAYMENT_REFUSALS: Record<string, string> = {
   PAYMENT_AMOUNT_MISMATCH: "This payment's amount doesn't match what is due. Your page has been refreshed.",
   PAYMENT_ENTRY_EXISTS: 'This payment has already been added for this application. Your page has been refreshed.',
   ENTRY_AMOUNT_UNKNOWN: "The amount due for this application isn't set yet. Ask an agency admin.",
+  PAYMENT_RECEIVED_DATE_FUTURE: 'The date received cannot be in the future.',
+  PAYMENT_RECEIVED_DATE_INVALID: 'Enter the date the money was received.',
+  PAYMENT_RECEIVED_DATE_REASON_REQUIRED: 'This date is before this payment was added to the system. Add a short reason.',
+  PAYMENT_METHOD_INVALID: 'Choose EFT, Cash, Card at the office or Other.',
+  PAYMENT_METHOD_NOTE_REQUIRED: 'For Other, add a note saying how it was paid.',
+  PAYMENT_REFERENCE_INVALID: 'The reference is too long or has line breaks. Keep it to 120 characters.',
+  PAYMENT_CARD_NUMBER_REFUSED: 'This looks like a card number. Do not save card numbers. Type the slip number or only the last 4 digits.',
+  PAYMENT_REFERENCE_DUPLICATE: 'This reference is already on another payment in your agency. Check it, then confirm to save.',
 }
 
 /** User-facing text for a write the server refused with a policy code. */

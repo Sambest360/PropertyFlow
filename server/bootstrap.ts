@@ -7,6 +7,7 @@ import { fieldsFromLimitSnapshot, listingLimitsFromSettings } from '../src/lib/l
 import { agencyViewingSettingsFromJson, readViewingEvidence } from '../src/lib/applyEligibility.js'
 import { resolveFrontendRole } from '../src/lib/idMap.js'
 import { mapPool } from './mapPool.js'
+import { dateSast } from './paymentReversal.js'
 import { stripIdPassportLines } from './enquiryNotes.js'
 import { loadIdMapCache } from './idMapCache.js'
 import { USER_TO_UUID } from './entityMap.js'
@@ -371,6 +372,7 @@ export async function buildBootstrap(opts?: {
     leaseSignedRows,
     supportTicketRows,
     faultFeedbackRows,
+    paymentMarkRows,
   ] = await mapPool(
     [
       () =>
@@ -611,6 +613,15 @@ export async function buildBootstrap(opts?: {
             WHERE event_type = 'fault_thread' AND payload->>'kind' IN ('confirmed', 'reopened')
             ORDER BY subject_id, created_at DESC
             LIMIT 2000`,
+        ),
+      () =>
+        query<Record<string, unknown>>(
+          `SELECT subject_id::text AS subject_id, event_type, payload, created_at,
+                  actor_user_id::text AS actor_user_id
+             FROM event_log
+            WHERE event_type IN ('payment_marked_paid', 'payment_proof_reported')
+            ORDER BY created_at DESC
+            LIMIT 4000`,
         ),
     ] as const,
     8,
@@ -1493,7 +1504,7 @@ export async function buildBootstrap(opts?: {
     amount: Number(p.amount),
     status: paymentStatus(p.status as string),
     dueDate: dateOnly(p.due_date as Date),
-    paidAt: p.paid_at ? dateOnly(p.paid_at as Date) : null,
+    paidAt: p.paid_at ? dateSast(p.paid_at instanceof Date ? p.paid_at : new Date(String(p.paid_at))) : null,
     method: (p.method as string) ?? null,
     landlordVisible: Boolean(p.landlord_visible),
     reference: (p.reference as string) ?? undefined,
@@ -1502,15 +1513,35 @@ export async function buildBootstrap(opts?: {
     attachments: Array.isArray(p.attachments) ? p.attachments : [],
     recordedByUserId: mapUser(p.recorded_by as string | null),
     recordedByName: null as string | null,
+    recordedAt: null as string | null,
+    createdAt: p.created_at ? dateSast(new Date(p.created_at as Date)) : null,
+    tenantProofReported: false,
     // Admin reversal (spec-admin-reversal S5): the client sends this back as expectedUpdatedAt.
     updatedAt: iso(p.updated_at as Date | null),
   }))
 
-  for (const p of mappedPayments) {
+  const latestProof = new Map<string, Record<string, unknown>>()
+  const latestMarked = new Map<string, Record<string, unknown>>()
+  for (const row of paymentMarkRows as Array<Record<string, unknown>>) {
+    const sid = String(row.subject_id ?? '')
+    const typ = String(row.event_type ?? '')
+    if (!sid) continue
+    if (typ === 'payment_proof_reported' && !latestProof.has(sid)) latestProof.set(sid, row)
+    if (typ === 'payment_marked_paid' && !latestMarked.has(sid)) latestMarked.set(sid, row)
+  }
+
+  const rawPayments = payments as Array<Record<string, unknown>>
+  for (let i = 0; i < mappedPayments.length; i++) {
+    const p = mappedPayments[i]
     if (p.recordedByUserId) {
       const u = appUsers.find((x) => x.id === p.recordedByUserId)
       p.recordedByName = u?.name ?? null
     }
+    const uuid = String(rawPayments[i]?.id ?? '')
+    if (!uuid) continue
+    const marked = latestMarked.get(uuid)
+    if (marked?.created_at) p.recordedAt = iso(marked.created_at as Date)
+    if (latestProof.has(uuid)) p.tenantProofReported = true
   }
 
   const propertyDocuments = (documents as Array<Record<string, unknown>>).map((d) => ({

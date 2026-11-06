@@ -679,6 +679,7 @@ export type PaymentAttachment = {
   dataUrl: string
   uploadedAt: string
   uploadedByName?: string | null
+  uploadedByRole?: 'tenant' | 'staff' | string | null
 }
 
 export type PaymentRecord = {
@@ -707,6 +708,9 @@ export type PaymentRecord = {
   attachments?: PaymentAttachment[]
   recordedByUserId?: string | null
   recordedByName?: string | null
+  recordedAt?: string | null
+  createdAt?: string | null
+  tenantProofReported?: boolean
 }
 
 /** Lease e-sign snapshot — see src/lib/lease (roadmap Step 5). */

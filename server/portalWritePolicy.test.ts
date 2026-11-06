@@ -144,9 +144,9 @@ function answer(sqlRaw: string, params: unknown[] = []): unknown[] {
     const l = leases[String(params[0])]
     return l ? [{ client_id: CA, tenant_id: l.tenant, landlord_id: l.landlord, metadata: l.metadata }] : []
   }
-  if (sql.startsWith('SELECT party_user_id::text AS party_user_id FROM payments')) {
-    if (params[0] === UUID['PAY-1']) return [{ party_user_id: UUID['u-t'] }]
-    if (params[0] === UUID['PAY-2']) return [{ party_user_id: UUID['u-t2'] }]
+  if (sql.includes('party_user_id') && sql.includes('FROM payments WHERE id')) {
+    if (params[0] === UUID['PAY-1']) return [{ party_user_id: UUID['u-t'], status: 'DUE', client_id: CA }]
+    if (params[0] === UUID['PAY-2']) return [{ party_user_id: UUID['u-t2'], status: 'DUE', client_id: CA }]
     return []
   }
   if (sql.startsWith('SELECT reported_by::text AS reported_by FROM maintenance_tickets')) {

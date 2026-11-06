@@ -47,6 +47,7 @@
  * signature, documents, leads updates, viewing slots, invoices, lookups,
  * agencies, activity, suite alerts, deletes) is refused for portal roles.
  */
+import { paymentError } from './paymentWritePolicy.js'
 import { query } from './db.js'
 import { ensureUuid, resolveUuid } from './entityMap.js'
 import { leaseFeId, tenantOwnLeaseFeOnUnit } from './ticketLease.js'
@@ -695,11 +696,14 @@ export async function enforcePortalWritePolicy(
       const uuid = await resolveUuid('payment', body.id)
       if (!uuid) throw deny('tenants cannot create payments')
       const me = await actorUuid(actor)
-      const rows = await query<{ party_user_id: string | null }>(
-        `SELECT party_user_id::text AS party_user_id FROM payments WHERE id = $1::uuid`,
+      const rows = await query<{ party_user_id: string | null; status: string; client_id: string | null }>(
+        `SELECT party_user_id::text AS party_user_id, status, client_id::text AS client_id FROM payments WHERE id = $1::uuid`,
         [uuid],
       )
       if (!rows[0] || !me || rows[0].party_user_id !== me) throw deny('not their payment')
+      if (rows[0].status === 'PAID' || rows[0].status === 'CANCELLED') {
+        throw paymentError(409, 'PAYMENT_TERMINAL', 'Conflict: this payment is already marked paid')
+      }
       // Proof of payment only: status, amount, dates stay the agency's.
       // Uploaded proof (images / PDFs) is added to what is already stored (matched by id).
       const proof = tenantProofAttachments(data.attachments)
@@ -709,6 +713,19 @@ export async function enforcePortalWritePolicy(
         const existingAtts = Array.isArray(cur[0]?.attachments) ? (cur[0]!.attachments as Array<Record<string, unknown>>) : []
         const ids = new Set(existingAtts.map((x) => String(x?.id ?? '')))
         merged = [...existingAtts, ...proof.filter((x) => !ids.has(String(x.id)))].slice(0, 12)
+      }
+      const referenceProvided = Boolean(str(data.reference))
+      if (referenceProvided || proof.length) {
+        await query(
+          `INSERT INTO event_log (client_id, event_type, subject_type, subject_id, actor_user_id, payload, created_at)
+           VALUES ($1::uuid, 'payment_proof_reported', 'payment', $2::uuid, $3::uuid, $4::jsonb, NOW())`,
+          [
+            rows[0].client_id,
+            uuid,
+            me,
+            JSON.stringify({ attachmentCount: proof.length, referenceProvided }),
+          ],
+        )
       }
       await query(
         `UPDATE payments
@@ -799,6 +816,7 @@ export function tenantProofAttachments(raw: unknown): Array<Record<string, unkno
       dataUrl,
       uploadedAt: new Date().toISOString(),
       uploadedByName: typeof att.uploadedByName === 'string' ? att.uploadedByName.slice(0, 80) : null,
+      uploadedByRole: 'tenant',
     })
   }
   return out

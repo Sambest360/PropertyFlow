@@ -4,7 +4,10 @@
  */
 import { PERMISSIONS_VERSION } from '../src/lib/permissions.js'
 import { query, withTransaction, clientQuery } from './db.js'
+import { randomUUID } from 'node:crypto'
 import { terminalPaymentError } from './paymentWritePolicy.js'
+import type { StoredPayment } from './paymentWritePolicy.js'
+import { enforceRecordPaymentRules, markPaidAuditPayload, rowIsTenantReported } from './recordPaymentPolicy.js'
 import { slotStartSast, slotStoredStart } from './slotInstant.js'
 import {
   assertNoLeaseOverlap,
@@ -501,11 +504,18 @@ async function unitIdFromProperty(propertyId: unknown): Promise<string | null> {
   )
 }
 
+export type PersistAuditCtx = {
+  auditActorUserId?: string | null
+  auditActorRole?: string | null
+  impersonatedUserId?: string | null
+}
+
 export async function handlePersist(
   body: PersistBody,
   /** Acting user (front-end id or uuid) for audit rows written by the upsert. */
   actorUserId?: string | null,
   actorRole?: string | null,
+  audit?: PersistAuditCtx | null,
 ): Promise<{ ok: true; id: string; uuid: string; tempPassword?: string }> {
   await ensureEntityMapTable()
   const { resource, action, id, data = {} } = body
@@ -541,7 +551,7 @@ export async function handlePersist(
       ? { ok: true, id, uuid: res.uuid, tempPassword: res.generatedTempPassword }
       : { ok: true, id, uuid: res.uuid }
   }
-  const uuid = await upsertEntity(resource, id, data, actorUserId ?? null, actorRole ?? null)
+  const uuid = await upsertEntity(resource, id, data, actorUserId ?? null, actorRole ?? null, audit ?? null)
   if (
     resource === 'user' ||
     resource === 'agency' ||
@@ -652,6 +662,7 @@ async function upsertEntity(
   data: Record<string, unknown>,
   actorUserId: string | null = null,
   actorRole: string | null = null,
+  audit: PersistAuditCtx | null = null,
 ): Promise<string> {
   switch (resource) {
     case 'agency':
@@ -678,7 +689,7 @@ async function upsertEntity(
     case 'viewing_slot':
       return upsertViewingSlot(frontendId, data)
     case 'payment':
-      return upsertPayment(frontendId, data, actorUserId)
+      return upsertPayment(frontendId, data, actorUserId, actorRole, audit)
     case 'ticket':
       return upsertTicket(frontendId, data, actorUserId)
     case 'document':
@@ -2184,11 +2195,21 @@ async function upsertViewingSlot(feId: string, d: Record<string, unknown>): Prom
  * payment_amount_changed) are written in the same transaction, after the
  * RETURNING check.
  */
-async function upsertPayment(feId: string, d: Record<string, unknown>, actorUserId: string | null = null): Promise<string> {
+async function upsertPayment(
+  feId: string,
+  d: Record<string, unknown>,
+  actorUserId: string | null = null,
+  actorRole: string | null = null,
+  audit: PersistAuditCtx | null = null,
+): Promise<string> {
   const known = await resolveUuid('payment', feId)
   const prior = known
-    ? (await query<{ status: string; amount: string }>(
-        `SELECT status, amount::text AS amount FROM payments WHERE id = $1::uuid FOR UPDATE`,
+    ? (await query<StoredPayment>(
+        `SELECT id::text AS id, status, amount::text AS amount, notes, reference, due_date::text AS due_date,
+                client_id::text AS client_id, created_at, party_user_id::text AS party_user_id,
+                application_id::text AS application_id, lease_id::text AS lease_id, unit_id::text AS unit_id,
+                payment_type, attachments, party_name
+           FROM payments WHERE id = $1::uuid FOR UPDATE`,
         [known],
       ))[0] ?? null
     : null
@@ -2198,25 +2219,49 @@ async function upsertPayment(feId: string, d: Record<string, unknown>, actorUser
   }
   const terminal = terminalPaymentError(prior?.status)
   if (terminal) throw terminal
+  const plan = await enforceRecordPaymentRules(prior, d)
   const uuid = await ensureUuid('payment', feId)
   const client = await clientId(d.agencyId)
   const unit = await unitIdFromProperty(d.propertyId)
   const lease = d.tenancyId ? await resolveUuid('tenancy', str(d.tenancyId)) : null
   const app = d.applicationId ? await resolveUuid('application', str(d.applicationId)) : null
   const party = await userId(d.partyUserId)
-  const recorded = await userId(d.recordedByUserId)
+  const auditActorFe = audit?.auditActorUserId ?? actorUserId
+  const auditActorRole = audit?.auditActorRole ?? actorRole ?? 'agent'
+  const recorded = plan.markingPaid ? await userId(auditActorFe) : null
   const payType = PAY_TYPE_TO_DB[str(d.type, 'Other')] ?? 'OTHER'
   const status = d.status == null || d.status === '' ? null : (PAY_STATUS_TO_DB[str(d.status)] ?? 'DUE')
   const dueDate = d.dueDate == null || d.dueDate === '' ? null : str(d.dueDate)
+  const amountToWrite = plan.markingPaid && plan.createBalance ? plan.paidAmountCents / 100 : amount
+  const paidAmountToWrite = plan.markingPaid ? plan.paidAmountCents / 100 : num(d.paidAmount)
+  const paidAtYmd = plan.markingPaid ? plan.paidAtYmd : null
+  const methodToWrite = plan.markingPaid ? plan.method : d.method ? str(d.method) : null
+  const referenceToWrite = plan.markingPaid ? plan.reference : d.reference ? str(d.reference) : null
+  const notesToWrite = plan.markingPaid ? plan.notesToStore : d.notes ? str(d.notes) : null
 
-  const rows = await query<{ status: string; amount: string; method: string | null; reference: string | null; client_id: string }>(
+  const rows = await query<{
+    status: string
+    amount: string
+    method: string | null
+    reference: string | null
+    client_id: string
+    unit_id: string | null
+    lease_id: string | null
+    application_id: string | null
+    party_user_id: string | null
+    party_name: string | null
+    payment_type: string
+    due_date: string
+  }>(
     `INSERT INTO payments (
        id, client_id, unit_id, lease_id, application_id, party_user_id, party_name,
        payment_type, amount, paid_amount, status, due_date, paid_at, method, reference,
        notes, landlord_visible, recorded_by, attachments, updated_at
      ) VALUES (
        $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7,
-       $8, COALESCE($9::numeric, $21::numeric), $10, COALESCE($11, 'DUE'), COALESCE($12::date, $20::date), $13::timestamptz, $14, $15,
+       $8, COALESCE($9::numeric, $21::numeric), $10, COALESCE($11, 'DUE'), COALESCE($12::date, $20::date),
+       CASE WHEN $13::date IS NULL THEN NULL ELSE ($13::date)::timestamp AT TIME ZONE 'Africa/Johannesburg' END,
+       $14, $15,
        $16, $17, $18::uuid, $19::jsonb, NOW()
      )
      ON CONFLICT (id) DO UPDATE SET
@@ -2224,15 +2269,26 @@ async function upsertPayment(feId: string, d: Record<string, unknown>, actorUser
        paid_amount = EXCLUDED.paid_amount,
        status = COALESCE($11, payments.status),
        due_date = COALESCE($12::date, payments.due_date),
-       paid_at = EXCLUDED.paid_at,
-       method = EXCLUDED.method,
+       paid_at = CASE
+         WHEN $11 = 'PAID' AND payments.status IS DISTINCT FROM 'PAID' THEN EXCLUDED.paid_at
+         ELSE payments.paid_at
+       END,
+       method = CASE
+         WHEN $11 = 'PAID' AND payments.status IS DISTINCT FROM 'PAID' THEN EXCLUDED.method
+         ELSE EXCLUDED.method
+       END,
        reference = EXCLUDED.reference,
        notes = EXCLUDED.notes,
        attachments = EXCLUDED.attachments,
-       recorded_by = EXCLUDED.recorded_by,
+       recorded_by = CASE
+         WHEN $11 = 'PAID' AND payments.status IS DISTINCT FROM 'PAID' THEN EXCLUDED.recorded_by
+         ELSE payments.recorded_by
+       END,
        updated_at = NOW()
      WHERE payments.status NOT IN ('PAID', 'CANCELLED')
-     RETURNING status, amount::text AS amount, method, reference, client_id::text AS client_id`,
+     RETURNING status, amount::text AS amount, method, reference, client_id::text AS client_id,
+               unit_id::text AS unit_id, lease_id::text AS lease_id, application_id::text AS application_id,
+               party_user_id::text AS party_user_id, party_name, payment_type, due_date::text AS due_date`,
     [
       uuid,
       client,
@@ -2242,20 +2298,18 @@ async function upsertPayment(feId: string, d: Record<string, unknown>, actorUser
       party,
       str(d.partyName, 'Party'),
       payType,
-      amount,
-      num(d.paidAmount),
+      amountToWrite,
+      paidAmountToWrite,
       status,
       dueDate,
-      d.paidAt ? str(d.paidAt) : null,
-      d.method ? str(d.method) : null,
-      d.reference ? str(d.reference) : null,
-      d.notes ? str(d.notes) : null,
+      paidAtYmd,
+      methodToWrite,
+      referenceToWrite,
+      notesToWrite,
       bool(d.landlordVisible, true),
       recorded,
       JSON.stringify(Array.isArray(d.attachments) ? d.attachments : []),
       new Date().toISOString().slice(0, 10),
-      // The proposed row must pass NOT NULL before ON CONFLICT: an update with
-      // no amount proposes the stored one (a create never gets here without one).
       prior?.amount ?? null,
     ],
   )
@@ -2265,14 +2319,47 @@ async function upsertPayment(feId: string, d: Record<string, unknown>, actorUser
     throw terminalPaymentError(now?.status) ?? terminalPaymentError('PAID')!
   }
 
+  let balanceFe: string | null = null
+  if (plan.markingPaid && plan.createBalance) {
+    balanceFe = `PAY-${randomUUID()}`
+    const balanceUuid = await ensureUuid('payment', balanceFe)
+    await query(
+      `INSERT INTO payments (
+         id, client_id, unit_id, lease_id, application_id, party_user_id, party_name,
+         payment_type, amount, status, due_date, landlord_visible, attachments, updated_at
+       ) VALUES (
+         $1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid, $7,
+         $8, $9, 'DUE', $10::date, TRUE, '[]'::jsonb, NOW()
+       )`,
+      [
+        balanceUuid,
+        saved.client_id,
+        saved.unit_id ?? prior?.unit_id ?? unit,
+        saved.lease_id ?? prior?.lease_id ?? lease,
+        saved.application_id ?? prior?.application_id ?? app,
+        saved.party_user_id ?? prior?.party_user_id ?? party,
+        saved.party_name ?? prior?.party_name ?? str(d.partyName, 'Party'),
+        saved.payment_type ?? prior?.payment_type ?? payType,
+        plan.balanceCents / 100,
+        saved.due_date ?? prior?.due_date ?? dueDate,
+      ],
+    )
+  }
+
   const audits: Array<{ type: string; payload: Record<string, unknown> }> = []
   const previousStatus = prior?.status ?? null
   const cents = (v: string | null | undefined) => (v == null ? null : Math.round(Number(v) * 100))
   if (saved.status === 'PAID' && previousStatus !== 'PAID') {
-    audits.push({
-      type: 'payment_marked_paid',
-      payload: { previousStatus, amountCents: cents(saved.amount), method: saved.method ?? null, reference: saved.reference ?? null },
-    })
+    const payload = plan.markingPaid
+      ? markPaidAuditPayload(plan, {
+          previousStatus,
+          recordedByRole: auditActorRole,
+          confirmedTenantReport: await rowIsTenantReported(prior),
+          impersonatedUserId: audit?.impersonatedUserId ?? null,
+          balancePaymentId: balanceFe,
+        })
+      : { previousStatus, amountCents: cents(saved.amount), method: saved.method ?? null, reference: saved.reference ?? null }
+    audits.push({ type: 'payment_marked_paid', payload })
   }
   if (prior && saved.status === 'CANCELLED' && previousStatus !== 'CANCELLED') {
     audits.push({ type: 'payment_cancelled_by_staff', payload: { previousStatus, amountCents: cents(saved.amount) } })
@@ -2285,7 +2372,7 @@ async function upsertPayment(feId: string, d: Record<string, unknown>, actorUser
     })
   }
   if (audits.length) {
-    const actorUuid = actorUserId ? await resolveUuid('user', actorUserId) : null
+    const actorUuid = (plan.markingPaid ? auditActorFe : actorUserId) ? await resolveUuid('user', (plan.markingPaid ? auditActorFe : actorUserId)!) : null
     for (const a of audits) {
       await query(
         `INSERT INTO event_log (client_id, event_type, subject_type, subject_id, actor_user_id, payload, created_at)

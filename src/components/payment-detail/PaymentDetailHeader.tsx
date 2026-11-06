@@ -4,7 +4,7 @@ import { ActionButtonRow } from '../ActionButtonRow'
 import { BackButton } from '../BackButton'
 import { Badge, Button, statusTone } from '../ui'
 import { formatZAR } from '../../data/seed'
-import { paymentAmountLabel, isOpenPayment } from '../payments/types'
+import { paymentAmountLabel, isOpenPayment, isTenantReportedPayment, TENANT_REPORTED_LABEL } from '../payments/types'
 import { ICON_STROKE } from './types'
 
 export function PaymentDetailHeader({
@@ -35,6 +35,7 @@ export function PaymentDetailHeader({
   onSendDunning?: () => void
 }) {
   const open = isOpenPayment(payment.status)
+  const reported = isTenantReportedPayment(payment)
 
   return (
     <div className="mb-5">
@@ -45,6 +46,7 @@ export function PaymentDetailHeader({
               {payment.type}
             </h1>
             <Badge tone={statusTone(payment.status)}>{payment.status}</Badge>
+            {reported ? <Badge tone="warning">{TENANT_REPORTED_LABEL}</Badge> : null}
           </div>
           <p className="mt-1 text-sm text-ink-500">
             {payment.id}
@@ -55,8 +57,14 @@ export function PaymentDetailHeader({
             {paymentAmountLabel(payment, formatZAR)}
           </p>
           <p className="mt-1 text-sm text-ink-500">
-            {payment.paidAt ? `Paid ${payment.paidAt}` : `Due ${payment.dueDate}`}
+            {payment.paidAt ? `Received ${payment.paidAt}` : `Due ${payment.dueDate}`}
           </p>
+          {payment.status === 'Paid' && payment.recordedByName ? (
+            <p className="mt-1 text-sm text-ink-500">
+              Recorded by {payment.recordedByName}
+              {payment.recordedAt ? ` at ${payment.recordedAt}` : ''}
+            </p>
+          ) : null}
         </div>
 
         <ActionButtonRow className="sm:w-auto">
@@ -71,7 +79,7 @@ export function PaymentDetailHeader({
               {canMaintain ? (
                 <Button className="min-h-11 gap-2" onClick={onMarkPaid}>
                   <CheckCircle2 className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
-                  Mark paid
+                  {reported ? 'Confirm payment' : 'Mark paid'}
                 </Button>
               ) : null}
               {canMaintain ? (

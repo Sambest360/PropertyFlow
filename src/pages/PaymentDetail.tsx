@@ -80,19 +80,32 @@ export default function PaymentDetail() {
     setProofSent('Thank you. Your proof of payment is uploaded; the agency confirms it and marks the payment paid.')
   }
 
-  const handleMarkPaid = (details: MarkPaymentPaidDetails) => {
-    if (!payment) return
-    if (!canMutate(payment.propertyId) && role !== 'tenant') return
-    markPaymentPaid(payment.id, {
+  const handleMarkPaid = async (details: MarkPaymentPaidDetails) => {
+    if (!payment) return false
+    if (role === 'tenant') {
+      void alert.success({
+        title: 'Agency records payments',
+        text: 'Tenants report a payment by uploading proof. The agency records it as paid.',
+        tone: 'warning',
+      })
+      return false
+    }
+    if (!canMutate(payment.propertyId)) return false
+    const result = await markPaymentPaid(payment.id, {
       ...details,
       recordedByUserId: user.id,
       recordedByName: details.recordedByName ?? user.name,
     })
+    if (result && typeof result === 'object' && result.ok === false && result.code === 'PAYMENT_REFERENCE_DUPLICATE') {
+      return result
+    }
+    if (result !== true) return false
     setMarkPaidOpen(false)
     void alert.success({
       title: 'Payment marked paid',
       text: 'Payment details recorded.',
     })
+    return true
   }
 
   const handleCancel = () => {
