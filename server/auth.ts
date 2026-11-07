@@ -2,6 +2,7 @@
  * Email/password auth for the Hono API.
  * Uses bcryptjs hashes in users.password_hash and HMAC-signed JWT cookies/Bearer tokens.
  */
+import { platformTierFrom, type PlatformTier } from '../src/lib/platformTier.js'
 import { normalizeStoredPermissions } from '../src/lib/permissions.js'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import bcrypt from 'bcryptjs'
@@ -57,6 +58,8 @@ export type SessionUser = {
   mustChangePassword?: boolean
   /** False only for self-registered accounts that have not confirmed their email yet. */
   emailVerified?: boolean
+  /** 'administrator': platform staff below a super admin (src/lib/platformTier.ts). */
+  platformTier?: PlatformTier | null
 }
 
 export type VerificationDocMeta = {
@@ -286,6 +289,7 @@ export async function rowToSession(row: UserRow): Promise<SessionUser> {
     verification,
     mustChangePassword: meta.mustChangePassword === true,
     emailVerified: meta.emailVerification !== 'pending',
+    platformTier: platformTierFrom(feRole, meta),
   }
 }
 
@@ -726,6 +730,7 @@ export function sessionToPublic(user: SessionUser) {
     verification: user.verification ?? undefined,
     mustChangePassword: user.mustChangePassword === true,
     emailVerified: user.emailVerified !== false,
+    platformTier: user.platformTier ?? null,
   }
 }
 
@@ -733,11 +738,13 @@ export function actorFromSession(user: SessionUser): {
   userId: string
   role: import('../src/types/domain.js').Role
   agencyId: string | null
+  platformTier?: PlatformTier | null
 } {
   return {
     userId: user.frontendId,
     role: user.role as import('../src/types/domain.js').Role,
     agencyId: user.agencyId,
+    ...(user.platformTier ? { platformTier: user.platformTier } : {}),
   }
 }
 

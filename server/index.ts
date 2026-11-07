@@ -910,7 +910,7 @@ async function loadFilteredBootstrap(
   const { hideDeletedUsersForActor } = await import('./deletedUsers.js')
   const filtered = stripRestrictedCollections(
     filterBootstrapForActor(
-      hideDeletedUsersForActor(data, actor.role) as Parameters<typeof filterBootstrapForActor>[0],
+      hideDeletedUsersForActor(data, actor.platformTier === 'administrator' ? 'administrator' : actor.role) as Parameters<typeof filterBootstrapForActor>[0],
       actor,
       scope,
       aliases,
@@ -1290,7 +1290,9 @@ app.get('/api/files/*', async (c) => {
 app.get('/api/admin/storage', async (c) => {
   try {
     const actor = await requireActor(c)
-    if (actor.role !== 'super_admin') return c.json({ error: 'forbidden', message: 'Super admin only' }, 403)
+    if (actor.role !== 'super_admin' || actor.platformTier === 'administrator') {
+      return c.json({ error: 'forbidden', message: 'Super admin only' }, 403)
+    }
     const { listAgencyStorage, sendStorageAlerts } = await import('./agencyStorage.js')
     const agencies = await listAgencyStorage()
     await sendStorageAlerts(agencies).catch((err) =>
@@ -1307,7 +1309,9 @@ app.get('/api/admin/storage', async (c) => {
 app.put('/api/admin/storage/:agencyId', async (c) => {
   try {
     const actor = await requireActor(c)
-    if (actor.role !== 'super_admin') return c.json({ error: 'forbidden', message: 'Super admin only' }, 403)
+    if (actor.role !== 'super_admin' || actor.platformTier === 'administrator') {
+      return c.json({ error: 'forbidden', message: 'Super admin only' }, 403)
+    }
     const body = (await c.req.json().catch(() => ({}))) as { quotaMb?: unknown; warnPct?: unknown }
     const { setAgencyStorageQuota } = await import('./agencyStorage.js')
     await setAgencyStorageQuota(c.req.param('agencyId'), body)

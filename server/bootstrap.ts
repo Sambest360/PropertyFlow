@@ -1,4 +1,5 @@
 import { normalizeStoredPermissions } from '../src/lib/permissions.js'
+import { ADMINISTRATOR_TIER, platformTierFrom } from '../src/lib/platformTier.js'
 import { query } from './db.js'
 import { readTicketAccessNotes, ticketAccessNotesColumnExists } from './ticketAccessNotes.js'
 import { readUnitErfSize, unitErfSizeColumnExists } from './unitErfSize.js'
@@ -782,6 +783,7 @@ export async function buildBootstrap(opts?: {
       name: `${u.first_name} ${u.last_name}`.trim(),
       email: u.email,
       role: feRole,
+      ...(platformTierFrom(feRole, meta) ? { platformTier: ADMINISTRATOR_TIER } : {}),
       agencyId: agencyFe(u.client_id),
       phone: u.phone ?? undefined,
       active: u.active,

@@ -1,4 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom'
+import { isAdministrator, isAdministratorHiddenPath } from './lib/platformTier'
 import { lazy, Suspense, type ReactNode } from 'react'
 import { ThemeProvider } from './context/ThemeContext'
 import { AppStoreProvider } from './context/AppStore'
@@ -131,6 +132,14 @@ function PageFallback() {
   )
 }
 
+/** Administrators (below a super admin) never open the super-admin-only pages. */
+function AdministratorPathGate({ children }: { children: ReactNode }) {
+  const { user } = useAuth()
+  const { pathname } = useLocation()
+  if (isAdministrator(user) && isAdministratorHiddenPath(pathname)) return <Navigate to="/workspace" replace />
+  return <>{children}</>
+}
+
 function Guard({
   permission,
   anyOf,
@@ -141,9 +150,11 @@ function Guard({
   children: ReactNode
 }) {
   return (
-    <RequirePermission permission={permission} anyOf={anyOf}>
-      {children}
-    </RequirePermission>
+    <AdministratorPathGate>
+      <RequirePermission permission={permission} anyOf={anyOf}>
+        {children}
+      </RequirePermission>
+    </AdministratorPathGate>
   )
 }
 
@@ -158,11 +169,13 @@ function AgencyOpsGuard({
   children: ReactNode
 }) {
   return (
-    <RequireAgencyOpsAccess>
-      <RequirePermission permission={permission} anyOf={anyOf}>
-        {children}
-      </RequirePermission>
-    </RequireAgencyOpsAccess>
+    <AdministratorPathGate>
+      <RequireAgencyOpsAccess>
+        <RequirePermission permission={permission} anyOf={anyOf}>
+          {children}
+        </RequirePermission>
+      </RequireAgencyOpsAccess>
+    </AdministratorPathGate>
   )
 }
 

@@ -220,6 +220,8 @@ export type AppUser = {
   /** Absent on redacted bootstrap users (other people outside your admin scope). */
   email?: string
   role: Role
+  /** 'administrator' on a super_admin below a super admin (src/lib/platformTier.ts). */
+  platformTier?: 'administrator' | null
   agencyId: string | null
   phone?: string
   /** SA ID or passport — used for compliance identity. */

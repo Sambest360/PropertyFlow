@@ -32,11 +32,15 @@ async function needBilling(a: Awaited<ReturnType<typeof actorOf>>) {
   const actor = needActor(a)
   const { assertNotRestricted } = await import('./permissionGate.js')
   await assertNotRestricted(actor, 'billing.view')
+  // Administrators never see Subscription & billing.
+  if (actor.platformTier === 'administrator') throw Object.assign(new Error('Super admin only'), { status: 403 })
   return actor
 }
 function needPlatform(a: Awaited<ReturnType<typeof actorOf>>) {
   const actor = needActor(a)
-  if (actor.role !== 'super_admin') throw Object.assign(new Error('Platform team only'), { status: 403 })
+  if (actor.role !== 'super_admin' || actor.platformTier === 'administrator') {
+    throw Object.assign(new Error('Super admin only'), { status: 403 })
+  }
   return actor
 }
 

@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
+import { isAdministrator, isFullSuperAdmin, platformRoleLabel } from '../../lib/platformTier'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
   Building2,
@@ -50,6 +51,9 @@ import {
 } from '../../lib/verification'
 import { maskIdNumber } from '../../lib/screening/consentTerms'
 import { accountStatusLabel } from '../../lib/accountStatus'
+
+/** The role select's value for an Administrator (role super_admin + tier). */
+const ADMINISTRATOR_OPTION = 'administrator'
 
 const ICON_STROKE = 1.6
 
@@ -142,7 +146,12 @@ export default function AdminUserDetailPage() {
   const agency = state.agencies.find((a) => a.id === user.agencyId)
   const agencyName =
     agency?.name ?? (user.role === 'super_admin' ? 'Platform' : '—')
-  const mutable = isPlatform || (user.role !== 'super_admin' && scopeAgency(user.agencyId))
+  /** An Administrator never changes a super admin (the server refuses too). */
+  const viewerIsAdministrator = isAdministrator(realUser)
+  const lockedSuperAdmin = viewerIsAdministrator && isFullSuperAdmin(user)
+  const roleLabel = platformRoleLabel(user) ?? roleLabels[user.role]
+  const mutable =
+    !lockedSuperAdmin && (isPlatform || (user.role !== 'super_admin' && scopeAgency(user.agencyId)))
   const currentPerms = userBasePermissions(user.role, user.enabledPermissions)
   const mentors = mentorsForAgency(state.users, user.agencyId)
   const mentorName = user.mentorId
@@ -180,7 +189,7 @@ export default function AdminUserDetailPage() {
                   <VerificationStatusBadge user={user} />
                 </div>
                 <p className="mt-1 text-sm text-ink-500">
-                  {roleLabels[user.role]} · {agencyName}
+                  {roleLabel} · {agencyName}
                 </p>
                 <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-ink-600">
                   <span className="inline-flex items-center gap-1.5">
@@ -224,10 +233,10 @@ export default function AdminUserDetailPage() {
                   <ChangeEmailButton userId={user.id} userName={user.name} currentEmail={user.email} />
                 </>
               ) : null}
-              {realUser.role === 'super_admin' && isApiEnabled ? (
+              {realUser.role === 'super_admin' && !lockedSuperAdmin && isApiEnabled ? (
                 <SuperAdminQuickActions user={user} viewerId={realUser.id} showReset={false} />
               ) : null}
-              {realUser.role === 'super_admin' && user.role !== 'super_admin' && user.id !== realUser.id && isApiEnabled ? (
+              {realUser.role === 'super_admin' && !viewerIsAdministrator && user.role !== 'super_admin' && user.id !== realUser.id && isApiEnabled ? (
                 <DeleteUserButton
                   userId={user.id}
                   userName={user.name}
@@ -283,6 +292,8 @@ export default function AdminUserDetailPage() {
             currentPerms={currentPerms}
             reducedMotion={reducedMotion}
             onAssignRole={assignRole}
+            viewerIsAdministrator={viewerIsAdministrator}
+            onSetPlatformTier={(platformTier) => updateUser(user.id, { platformTier })}
             onUpdateProfile={(patch) => updateUser(user.id, patch)}
             onUpdatePermissions={(enabledPermissions) =>
               updateUser(user.id, { enabledPermissions })
@@ -392,7 +403,7 @@ function OverviewTab({
             value={user.dateOfBirth ? formatDisplayDob(user.dateOfBirth) : '—'}
           />
           <FlatField label="Company" value={user.company ?? '—'} />
-          <FlatField label="Role" value={roleLabels[user.role]} />
+          <FlatField label="Role" value={platformRoleLabel(user) ?? roleLabels[user.role]} />
           <FlatField label="Agency" value={agencyName} />
           <FlatField label="Status" value={accountStatusLabel(user)} />
           {mentorName ? <FlatField label="Mentor" value={mentorName} /> : null}
@@ -580,6 +591,8 @@ function AccessTab({
   currentPerms,
   reducedMotion,
   onAssignRole,
+  viewerIsAdministrator,
+  onSetPlatformTier,
   onUpdateProfile,
   onUpdatePermissions,
 }: {
@@ -596,6 +609,8 @@ function AccessTab({
   currentPerms: Permission[]
   reducedMotion?: boolean
   onAssignRole: (userId: string, role: Role, agencyId?: string | null) => void
+  viewerIsAdministrator: boolean
+  onSetPlatformTier: (tier: 'administrator' | null) => void
   onUpdateProfile: (
     patch: Partial<Pick<AppUser, 'mentorId' | 'commissionSharePct' | 'licenseStatus'>>,
   ) => void
@@ -615,22 +630,41 @@ function AccessTab({
             <label className="mb-1 block text-xs font-medium text-ink-500">Role</label>
             <Select
               className="min-h-11 w-full cursor-pointer"
-              value={user.role}
+              value={user.role === 'super_admin' && isAdministrator(user) ? ADMINISTRATOR_OPTION : user.role}
               disabled={!mutable || !hasRolesAssign}
               onChange={(e) => {
-                const next = e.target.value as Role
+                const value = e.target.value
+                const next = (value === ADMINISTRATOR_OPTION ? 'super_admin' : value) as Role
                 onAssignRole(
                   user.id,
                   next,
                   next === 'super_admin' ? null : user.agencyId,
                 )
+                if (next === 'super_admin') {
+                  onSetPlatformTier(value === ADMINISTRATOR_OPTION || viewerIsAdministrator ? 'administrator' : null)
+                }
               }}
             >
-              {assignableRoles.map((r) => (
-                <option key={r} value={r}>
-                  {roleLabels[r]}
-                </option>
-              ))}
+              {assignableRoles.flatMap((r) =>
+                r === 'super_admin'
+                  ? [
+                      ...(viewerIsAdministrator
+                        ? []
+                        : [
+                            <option key="super_admin" value="super_admin">
+                              Super admin
+                            </option>,
+                          ]),
+                      <option key={ADMINISTRATOR_OPTION} value={ADMINISTRATOR_OPTION}>
+                        Administrator
+                      </option>,
+                    ]
+                  : [
+                      <option key={r} value={r}>
+                        {roleLabels[r]}
+                      </option>,
+                    ],
+              )}
               {DEFERRED_ADMIN_ROLES.includes(user.role) &&
               !assignableRoles.includes(user.role) ? (
                 <option value={user.role}>{roleLabels[user.role]}</option>

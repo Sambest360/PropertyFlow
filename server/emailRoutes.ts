@@ -123,7 +123,9 @@ export function registerEmailRoutes(app: Hono): void {
   async function requireSuperAdmin(c: Context) {
     const user = await resolveSessionUser(c).catch(() => null)
     if (!user) return { error: c.json({ error: 'unauthorized', message: 'Sign in first' }, 401) }
-    if (user.role !== 'super_admin') return { error: c.json({ error: 'forbidden', message: 'Platform team only' }, 403) }
+    if (user.role !== 'super_admin' || user.platformTier === 'administrator') {
+      return { error: c.json({ error: 'forbidden', message: 'Super admin only' }, 403) }
+    }
     return { user }
   }
 

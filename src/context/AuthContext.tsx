@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { platformRoleLabel } from '../lib/platformTier'
 import type { AppUser, Permission, Role } from '../types/domain'
 import {
   canImpersonateTarget,
@@ -147,6 +148,7 @@ function dtoToAppUser(dto: AuthUserDto): AppUser {
     verification: dto.verification,
     mustChangePassword: dto.mustChangePassword === true ? true : undefined,
     emailVerified: dto.emailVerified === false ? false : undefined,
+    platformTier: dto.platformTier === 'administrator' ? 'administrator' : undefined,
   }
 }
 
@@ -656,7 +658,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       },
       has,
       hasAny,
-      roleLabel: isAuthenticated ? roleLabels[user.role] : 'Guest',
+      roleLabel: isAuthenticated ? (platformRoleLabel(user) ?? roleLabels[user.role]) : 'Guest',
       roleBlurb: isAuthenticated ? roleBlurbs[user.role] : 'Sign in to manage properties',
       mustChangePassword,
       emailVerified: sessionUser?.emailVerified !== false,

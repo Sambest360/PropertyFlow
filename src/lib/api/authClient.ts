@@ -33,6 +33,8 @@ export type AuthUserDto = {
   mustChangePassword?: boolean
   /** False until a self-registered account confirms its email. */
   emailVerified?: boolean
+  /** 'administrator' on platform staff below a super admin. */
+  platformTier?: 'administrator' | null
 }
 
 export type AuthResponse = {

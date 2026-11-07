@@ -28,7 +28,9 @@ const fail = (status: number, message: string, code?: string) =>
 export type DeleteUserResult = { userId: string; mode: 'deleted' | 'anonymised' }
 
 export async function deleteUser(actor: SessionUser, requestedId: string): Promise<DeleteUserResult> {
-  if (actor.role !== 'super_admin') throw fail(403, 'Only a super admin can delete users')
+  if (actor.role !== 'super_admin' || actor.platformTier === 'administrator') {
+    throw fail(403, 'Only a super admin can delete users')
+  }
   const wanted = String(requestedId ?? '').trim()
   if (!wanted) throw fail(400, 'userId is required')
   let uuid: string | null = null

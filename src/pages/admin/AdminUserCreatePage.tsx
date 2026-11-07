@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { isAdministrator } from '../../lib/platformTier'
 import { realAgencies } from '../../lib/agencyKinds'
 import { useFreshCreateDraft } from '../../hooks/useFreshCreateDraft'
 import { acquireSubmitLock, releaseSubmitLock } from '../../lib/wizardSubmitGuard'
@@ -104,6 +105,11 @@ export default function AdminUserCreatePage() {
   const { has, user: authUser, role: granterRole } = useAuth()
   const { agencyId: scopeAgencyId } = useAgencyScope()
   const isPlatform = has('platform.manage')
+  /** Administrators add Administrators only; a super admin picks either tier. */
+  const granterIsAdministrator = isAdministrator(authUser)
+  const [platformTier, setPlatformTier] = useState<'administrator' | null>(
+    granterIsAdministrator ? 'administrator' : null,
+  )
   /** Agency admins can add team members only — not full Users/portal create. */
   const teamOnly = has('users.manage') && !has('roles.assign') && !isPlatform
   const intentLandlord = searchParams.get('intent') === 'landlord'
@@ -470,6 +476,9 @@ export default function AdminUserCreatePage() {
       role,
       agencyId: role === 'super_admin' ? null : selectedAgencyId,
       enabledPermissions: role === 'super_admin' ? undefined : enabledPermissions,
+      ...(role === 'super_admin'
+        ? { platformTier: granterIsAdministrator || platformTier === 'administrator' ? 'administrator' : null }
+        : {}),
       mentorId: needsMentor ? mentorId : null,
       licenseStatus: defaultLicenseStatus(role),
       commissionSharePct: commission,
@@ -905,20 +914,39 @@ export default function AdminUserCreatePage() {
                   </RoleGroup>
                 ) : null}
 
-                {!intentTeam && otherRoles.length > 0 ? (
-                  <RoleGroup title="Other accounts" subtitle="Owners, tenants, contractors, and platform.">
-                    {otherRoles.map((r) => (
-                      <RoleRow key={r} role={r} selected={role === r} onSelect={() => setRole(r)} />
-                    ))}
+                {!intentTeam && otherRoles.some((r) => r !== 'super_admin') ? (
+                  <RoleGroup title="Other accounts" subtitle="Owners, tenants and contractors.">
+                    {otherRoles
+                      .filter((r) => r !== 'super_admin')
+                      .map((r) => (
+                        <RoleRow key={r} role={r} selected={role === r} onSelect={() => setRole(r)} />
+                      ))}
                   </RoleGroup>
                 ) : null}
 
-                {intentTeam && creatableRoles.includes('super_admin') ? (
-                  <RoleGroup title="Platform" subtitle="Cross-agency access.">
+                {creatableRoles.includes('super_admin') && (intentTeam || otherRoles.includes('super_admin')) ? (
+                  <RoleGroup title="Platform" subtitle="Lekaya Rentals staff, across every agency.">
+                    {!granterIsAdministrator ? (
+                      <RoleRow
+                        role="super_admin"
+                        label="Super admin"
+                        scope="Everything, including billing, emails and users"
+                        selected={role === 'super_admin' && platformTier !== 'administrator'}
+                        onSelect={() => {
+                          setRole('super_admin')
+                          setPlatformTier(null)
+                        }}
+                      />
+                    ) : null}
                     <RoleRow
                       role="super_admin"
-                      selected={role === 'super_admin'}
-                      onSelect={() => setRole('super_admin')}
+                      label="Administrator"
+                      scope="Everything except billing, emails, all users, deleted users, storage and reports"
+                      selected={role === 'super_admin' && platformTier === 'administrator'}
+                      onSelect={() => {
+                        setRole('super_admin')
+                        setPlatformTier('administrator')
+                      }}
                     />
                   </RoleGroup>
                 ) : null}
@@ -1298,11 +1326,15 @@ function RoleRow({
   role,
   selected,
   index,
+  label,
+  scope,
   onSelect,
 }: {
   role: Role
   selected: boolean
   index?: number
+  label?: string
+  scope?: string
   onSelect: () => void
 }) {
   return (
@@ -1323,8 +1355,8 @@ function RoleRow({
           {index != null ? (
             <span className="tabular text-xs font-medium text-ink-400">{index}.</span>
           ) : null}
-          <span className="text-sm font-semibold text-ink">{roleLabels[role]}</span>
-          <span className="text-xs font-normal text-ink-400">{roleScopes[role]}</span>
+          <span className="text-sm font-semibold text-ink">{label ?? roleLabels[role]}</span>
+          <span className="text-xs font-normal text-ink-400">{scope ?? roleScopes[role]}</span>
         </span>
       </span>
     </button>

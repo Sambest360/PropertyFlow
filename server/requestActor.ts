@@ -87,6 +87,11 @@ export async function resolveRequestActor(
   if (session) {
     if (session.role === 'super_admin') {
       const impersonated = parseDemoActor(c, null)
+      // An Administrator may view as ordinary users, never as a super admin
+      // (that would lift every Administrator limit): they act as themselves.
+      if (impersonated && session.platformTier === 'administrator' && impersonated.role === 'super_admin') {
+        return actorFromSession(session)
+      }
       if (impersonated) {
         if (impersonated.userId !== session.frontendId) {
           await logImpersonation(c, session, impersonated)

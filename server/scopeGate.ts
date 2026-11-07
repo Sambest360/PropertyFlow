@@ -2,6 +2,7 @@
  * Server-side property scope: load links from Postgres, gate writes, filter bootstrap.
  * Reuses client rules from src/lib/scope.ts + scopeWrite.ts.
  */
+import { ADMINISTRATOR_TIER, isFullSuperAdmin, platformTierFrom } from '../src/lib/platformTier.js'
 import { isValidSignatureDataUrl, signatureInvalidError } from '../src/lib/signature/signatureImage.js'
 import { query } from './db.js'
 import { enforceStaffCreditCheckConsent, enforceStaffSignedStageMove } from './applicantApplicationPolicy.js'
@@ -946,6 +947,21 @@ async function storedUserRole(feId: string): Promise<string | null> {
   return resolveFrontendRole(String(r.role ?? ''), r.metadata ?? null, r.email)
 }
 
+/** A stored user's front-end role and platform tier (null when unknown). */
+async function storedPlatformUser(feId: string): Promise<{ role: string; platformTier: string | null } | null> {
+  const uuid = await resolveUuid('user', feId)
+  if (!uuid) return null
+  const r = (
+    await query<{ role: string | null; metadata: Record<string, unknown> | null; email: string | null }>(
+      `SELECT role, metadata, email FROM users WHERE id = $1::uuid`,
+      [uuid],
+    )
+  )[0]
+  if (!r) return null
+  const role = resolveFrontendRole(String(r.role ?? ''), r.metadata ?? null, r.email)
+  return { role, platformTier: platformTierFrom(role, r.metadata ?? null) }
+}
+
 /**
  * User row writes (resource 'user'). The owner is body.id only.
  *
@@ -997,6 +1013,27 @@ export async function enforceUserWritePolicy(
     if (role !== undefined && !ALL_ROLES.has(role)) {
       throw Object.assign(new Error(`Unknown role: ${role}`), { status: 400 })
     }
+    const own = body.id === actor.userId
+    if (actor.platformTier === ADMINISTRATOR_TIER) {
+      // An Administrator: never deletes users, never touches a full super
+      // admin, and anyone they make platform staff is an Administrator too.
+      if (body.action === 'delete') throw deny('only a super admin may delete users')
+      if (existing && !own) {
+        const target = await storedPlatformUser(body.id)
+        if (target && isFullSuperAdmin(target)) throw deny('an administrator cannot change a super admin')
+      }
+      if (own && existing) {
+        stripFields(data, ['role', 'platformTier', 'agencyId', 'active', 'enabledPermissions'])
+        role = undefined
+      } else if (role === 'super_admin' || Object.prototype.hasOwnProperty.call(data, 'platformTier')) {
+        data.platformTier = ADMINISTRATOR_TIER
+      }
+    } else if (own && existing) {
+      // A super admin cannot demote themselves (another super admin can).
+      stripFields(data, ['platformTier'])
+    } else if (Object.prototype.hasOwnProperty.call(data, 'platformTier')) {
+      data.platformTier = data.platformTier === ADMINISTRATOR_TIER ? ADMINISTRATOR_TIER : null
+    }
     // D3: no hash ever passes through persist, and an existing user's password
     // changes only through change-password / reset-password.
     stripFields(data, ['passwordHash'])
@@ -1006,7 +1043,7 @@ export async function enforceUserWritePolicy(
   }
   if (body.action === 'delete') throw deny('only a super admin may delete users')
   const submittedVerification = data.verification
-  stripFields(data, ['verification'])
+  stripFields(data, ['verification', 'platformTier'])
   // Credentials: never a raw hash or a plain password through a non-super write.
   // A temp password survives only on an agency admin's create (below); password
   // changes go through POST /api/auth/change-password (checks the current one).

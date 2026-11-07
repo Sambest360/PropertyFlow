@@ -1,4 +1,5 @@
 import type { LucideIcon } from 'lucide-react'
+import { isAdministratorHiddenPath } from '../../lib/platformTier'
 import {
   BadgeCheck,
   Banknote,
@@ -896,6 +897,22 @@ export type WorkspaceNavActorInput = {
   hasAny: (p: Permission[]) => boolean
   tenantOccupancyReady?: boolean
   tenantHasStaffNav?: boolean
+  /** An Administrator (below a super admin): the super-admin-only pages are left out. */
+  administrator?: boolean
+}
+
+/** The nav without the pages an Administrator never sees (src/lib/platformTier.ts). */
+export function withoutAdministratorHiddenPages(entries: WorkspaceNavEntry[]): WorkspaceNavEntry[] {
+  const out: WorkspaceNavEntry[] = []
+  for (const entry of entries) {
+    if (entry.type === 'link') {
+      if (!isAdministratorHiddenPath(navItemPath(entry.item))) out.push(entry)
+      continue
+    }
+    const children = entry.group.children.filter((c) => !isAdministratorHiddenPath(navItemPath(c)))
+    if (children.length) out.push({ type: 'group', group: { ...entry.group, children } })
+  }
+  return out
 }
 
 /** Permission-filtered nav with portal-actor dedupe and cross-portal link stripping. */
@@ -906,7 +923,8 @@ function withHelpAndSupport(entries: WorkspaceNavEntry[]): WorkspaceNavEntry[] {
 }
 
 export function buildWorkspaceNavForActor(input: WorkspaceNavActorInput): WorkspaceNavEntry[] {
-  return withHelpAndSupport(buildWorkspaceNavForActorInner(input))
+  const nav = withHelpAndSupport(buildWorkspaceNavForActorInner(input))
+  return input.administrator ? withoutAdministratorHiddenPages(nav) : nav
 }
 
 function buildWorkspaceNavForActorInner(input: WorkspaceNavActorInput): WorkspaceNavEntry[] {

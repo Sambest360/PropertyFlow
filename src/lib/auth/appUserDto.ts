@@ -19,5 +19,6 @@ export function appUserToDto(user: AppUser): AuthUserDto {
     idNumberOrPassport: user.idNumberOrPassport,
     verification: user.verification,
     mustChangePassword: user.mustChangePassword === true ? true : undefined,
+    platformTier: user.platformTier === 'administrator' ? 'administrator' : undefined,
   }
 }

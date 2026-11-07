@@ -904,6 +904,10 @@ async function upsertUser(feId: string, uuid: string, d: Record<string, unknown>
   // value (a profile edit must not clear a pending forced password change).
   if (hasTempPassword) meta.mustChangePassword = true
   if (hasRole) meta.frontend_role = feRole
+  // Platform tier (scopeGate decides who may set it): 'administrator' or cleared.
+  if (has('platformTier') || Object.prototype.hasOwnProperty.call(d, 'platformTier')) {
+    meta.platform_tier = d.platformTier === 'administrator' ? 'administrator' : null
+  }
   for (const k of ['enabledPermissions', 'licenseStatus', 'mentorId', 'commissionSharePct']) {
     if (has(k)) meta[k] = d[k] ?? null
   }

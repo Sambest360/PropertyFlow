@@ -23,6 +23,8 @@ export type DemoActor = {
   userId: string
   role: Role
   agencyId: string | null
+  /** 'administrator' on a super_admin session below a super admin (src/lib/platformTier.ts). */
+  platformTier?: 'administrator' | null
 }
 
 function asRole(v: unknown): Role | null {

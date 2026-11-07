@@ -1,4 +1,5 @@
 import { Link, NavLink, useLocation } from 'react-router-dom'
+import { isAdministrator } from '../../lib/platformTier'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronDown,
@@ -59,6 +60,7 @@ export function useWorkspaceNav(): WorkspaceNavEntry[] {
       hasAny,
       tenantHasStaffNav,
       tenantOccupancyReady: tenantHasApprovedOccupancy(state.applications, state.tenancies, user),
+      administrator: isAdministrator(user),
     })
   }, [has, hasAny, role, user, state.applications, state.tenancies])
 }
