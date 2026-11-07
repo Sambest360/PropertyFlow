@@ -486,6 +486,8 @@ app.post('/api/auth/register', async (c) => {
     void import('./accountEmails.js')
       .then(({ sendSignupEmails }) => sendSignupEmails(result.user.id))
       .catch((err) => console.warn('[signup emails] failed:', err instanceof Error ? err.message : err))
+    // Platform admins hear about every new sign-up (Admin → Emails → Admin alert emails).
+    void import('./adminAlertRecipients.js').then(({ notifyNewAccount }) => notifyNewAccount(result.user.id, 'signed_up'))
     return c.json(
       {
         ok: true,

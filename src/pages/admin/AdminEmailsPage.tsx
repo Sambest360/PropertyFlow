@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Mail, RefreshCw, Send } from 'lucide-react'
 import { Badge, Button, Card, PageHeader } from '../../components/ui'
 import { ComposeEmailCard } from '../../components/admin/ComposeEmailCard'
+import { AdminAlertEmailsCard } from '../../components/admin/AdminAlertEmailsCard'
 import {
   fetchEmailLog,
   fetchEmailTemplates,
@@ -84,6 +85,8 @@ export default function AdminEmailsPage() {
       />
 
       <ComposeEmailCard senderEmail={sender?.email} />
+
+      <AdminAlertEmailsCard />
 
       <Card className="flex flex-wrap items-start gap-3 p-4" data-tip-target="email-provider">
         {provider === 'log' ? (

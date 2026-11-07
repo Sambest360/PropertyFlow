@@ -16,6 +16,7 @@ import { sendTemplateEmail, type DigestItem } from './email/templates.js'
 import { emailActionFor } from './email/actions.js'
 import { audienceForRole, propertyCardForUnit, resolvePropertyRef } from './email/propertyContext.js'
 import { routeNotificationEmail } from './email/routing.js'
+import { adminAlertEmails, isSuperAdminRow } from './adminAlertRecipients.js'
 
 let columnsReady: Promise<void> | null = null
 export function ensureNotificationEmailColumns(): Promise<void> {
@@ -83,8 +84,23 @@ export async function emailPendingNotifications(limit = 200): Promise<{ sent: nu
       ? query(`UPDATE notifications SET emailed_at = NOW(), email_status = $2 WHERE id = ANY($1::uuid[])`, [ids, status])
       : Promise.resolve([])
 
+  // Notices for super admins are emailed once to the admin alert addresses
+  // (Admin → Emails), not to each super admin. Empty list: each super admin.
+  const alertTo = await adminAlertEmails().catch(() => [] as string[])
+  const platform = new Map<string, { item: Pending; ids: string[] }>()
+
   for (const [, list] of byUser) {
     const u = list[0]!
+    if (alertTo.length && isSuperAdminRow(u.role, u.metadata)) {
+      for (const n of list) {
+        // The same notice to several super admins is one email.
+        const key = [n.title, n.body, n.link_path ?? '', n.resource_type ?? '', n.action_type ?? ''].join('\u0001')
+        const entry = platform.get(key)
+        if (entry) entry.ids.push(n.id)
+        else platform.set(key, { item: n, ids: [n.id] })
+      }
+      continue
+    }
     const prefs = readPrefs(u.metadata)
     const wanted = u.active && prefs.email ? list.filter((n) => !prefs.muted.includes(categoryForResource(n.resource_type))) : []
     const unwanted = list.filter((n) => !wanted.includes(n))
@@ -128,7 +144,50 @@ export async function emailPendingNotifications(limit = 200): Promise<{ sent: nu
     if (result.sent) sent += nowIds.length
     else failed += nowIds.length
   }
+
+  if (platform.size) {
+    const r = await sendAdminAlerts(alertTo, [...platform.values()])
+    sent += r.sent
+    failed += r.failed
+    await mark(r.sentIds, 'sent')
+    await mark(r.loggedIds, 'logged')
+    await mark(r.failedIds, 'failed')
+  }
   return { sent, skipped, failed, held }
+}
+
+/** One email (or one summary) of this run's super admin notices to each admin alert address. */
+async function sendAdminAlerts(
+  to: string[],
+  entries: Array<{ item: Pending; ids: string[] }>,
+): Promise<{ sent: number; failed: number; sentIds: string[]; loggedIds: string[]; failedIds: string[] }> {
+  const audience = audienceForRole('SUPER_ADMIN')
+  const items: DigestItem[] = []
+  for (const { item } of entries) {
+    const ctx = await resolvePropertyRef({ linkPath: item.link_path }).catch(() => null)
+    items.push(await digestItem(item, audience, ctx?.unitUuid ?? null))
+  }
+  // Greet a listed address by its account's first name when it has one.
+  const people = await query<{ id: string; email: string; first_name: string | null }>(
+    `SELECT id::text AS id, lower(email) AS email, first_name FROM users WHERE lower(email) = ANY($1::text[])`,
+    [to],
+  ).catch(() => [] as Array<{ id: string; email: string; first_name: string | null }>)
+  let delivered = false
+  let logged = false
+  for (const email of to) {
+    const person = people.find((p) => p.email === email)
+    const name = person?.first_name || email.split('@')[0]!
+    const result =
+      items.length === 1
+        ? await sendTemplateEmail('notification', { to: email, name, ...items[0]!, userId: person?.id ?? null })
+        : await sendTemplateEmail('notification_digest', { to: email, name, items, userId: person?.id ?? null })
+    if (result.sent) delivered = true
+    else if ((result as { reason: string }).reason.startsWith('No email provider')) logged = true
+  }
+  const ids = entries.flatMap((e) => e.ids)
+  if (delivered) return { sent: ids.length, failed: 0, sentIds: ids, loggedIds: [], failedIds: [] }
+  if (logged) return { sent: 0, failed: 0, sentIds: [], loggedIds: ids, failedIds: [] }
+  return { sent: 0, failed: ids.length, sentIds: [], loggedIds: [], failedIds: ids }
 }
 
 /** Title, text, property card and deep-link button for one notification. */

@@ -98,3 +98,12 @@ export function sendComposedEmail(input: { userIds: string[]; group: EmailGroup;
     body: JSON.stringify(input),
   })
 }
+
+/** Super admin: the addresses that receive the admin emails (sign-ups, approvals, escalations…). */
+export function fetchAdminAlertEmails() {
+  return call<{ emails: string[]; max: number }>('/api/admin/email/alert-recipients')
+}
+
+export function saveAdminAlertEmails(emails: string[]) {
+  return call<{ emails: string[] }>('/api/admin/email/alert-recipients', { method: 'PUT', body: JSON.stringify({ emails }) })
+}

@@ -856,6 +856,7 @@ async function upsertUserWithResult(
         await sendVerificationEmail(resultUuid)
       })
       .catch((err) => console.warn('[account-setup email] failed:', err instanceof Error ? err.message : err))
+    void import('./adminAlertRecipients.js').then(({ notifyNewAccount }) => notifyNewAccount(resultUuid, 'added_by_staff'))
   }
   return generatedTempPassword ? { uuid: resultUuid, generatedTempPassword } : { uuid: resultUuid }
 }

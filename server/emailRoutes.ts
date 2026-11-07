@@ -156,6 +156,32 @@ export function registerEmailRoutes(app: Hono): void {
     return c.json({ emails: rows })
   })
 
+  // ---- Who receives the admin emails (sign-ups, approvals, escalations, compliance…) ----
+
+  app.get('/api/admin/email/alert-recipients', async (c) => {
+    const gate = await requireSuperAdmin(c)
+    if (gate.error) return gate.error
+    const { adminAlertEmails, MAX_ADMIN_ALERT_EMAILS } = await import('./adminAlertRecipients.js')
+    return c.json({ emails: await adminAlertEmails(), max: MAX_ADMIN_ALERT_EMAILS }, 200, { 'Cache-Control': 'no-store' })
+  })
+
+  app.put('/api/admin/email/alert-recipients', async (c) => {
+    const gate = await requireSuperAdmin(c)
+    if (gate.error) return gate.error
+    const body = (await c.req.json().catch(() => ({}))) as { emails?: unknown }
+    const { saveAdminAlertEmails, sanitizeAdminAlertEmails } = await import('./adminAlertRecipients.js')
+    const raw = Array.isArray(body.emails) ? body.emails : []
+    const { MAX_ADMIN_ALERT_EMAILS } = await import('./adminAlertRecipients.js')
+    if (raw.length > MAX_ADMIN_ALERT_EMAILS) {
+      return c.json({ error: 'too_many', message: `At most ${MAX_ADMIN_ALERT_EMAILS} addresses` }, 400)
+    }
+    const clean = sanitizeAdminAlertEmails(raw)
+    const bad = raw.filter((e) => typeof e !== 'string' || (e.trim() && !clean.includes(e.trim().toLowerCase())))
+    if (bad.length) return c.json({ error: 'invalid_email', message: `Not a valid email address: ${String(bad[0]).slice(0, 80)}` }, 400)
+    const by = /^[0-9a-f-]{36}$/i.test(gate.user.id) ? gate.user.id : null
+    return c.json({ emails: await saveAdminAlertEmails(clean, by) })
+  })
+
   // ---- Platform team: write an email to chosen people (sent from info@lekayarentals.site) ----
 
   app.get('/api/admin/email/recipients', async (c) => {
