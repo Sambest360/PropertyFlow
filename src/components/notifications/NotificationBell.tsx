@@ -16,6 +16,7 @@ import type { NotificationToast } from '../../lib/suiteAlerts'
 import { Button, cn } from '../ui'
 import { useNotificationPrefs } from '../../hooks/useNotificationPrefs'
 import { showsInApp } from '../../lib/notificationCategories'
+import { OPEN_NOTIFICATIONS_EVENT } from '../../lib/notificationSync'
 
 const ICON_STROKE = 1.6
 
@@ -35,6 +36,25 @@ export function NotificationBell({ className }: { className?: string }) {
     [state.notifications, user.id, prefs],
   )
   const unread = mine.filter((n) => !n.read).length
+
+  // Buzz when the unread count first loads after sign-in (instead of a pile of
+  // pop-ups), and again whenever it goes up.
+  const [buzzKey, setBuzzKey] = useState(0)
+  const lastUnreadRef = useRef<number | null>(null)
+  useEffect(() => {
+    const before = lastUnreadRef.current
+    lastUnreadRef.current = unread
+    if (unread > 0 && (before === null || before === 0 || unread > before)) setBuzzKey((k) => k + 1)
+  }, [unread])
+  useEffect(() => {
+    lastUnreadRef.current = null
+  }, [user.id])
+
+  useEffect(() => {
+    const openList = () => setOpen(true)
+    window.addEventListener(OPEN_NOTIFICATIONS_EVENT, openList)
+    return () => window.removeEventListener(OPEN_NOTIFICATIONS_EVENT, openList)
+  }, [])
 
   useEffect(() => {
     if (!open) return
@@ -62,7 +82,12 @@ export function NotificationBell({ className }: { className?: string }) {
         aria-haspopup="dialog"
         onClick={() => setOpen((v) => !v)}
       >
-        <Bell className="h-5 w-5" strokeWidth={ICON_STROKE} aria-hidden />
+        <Bell
+          key={buzzKey}
+          className={cn('h-5 w-5', buzzKey > 0 && 'animate-bell-buzz')}
+          strokeWidth={ICON_STROKE}
+          aria-hidden
+        />
         {unread > 0 && (
           <span className="absolute -right-1 -top-1 inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-accent px-1 text-[10px] font-bold tabular text-white ring-2 ring-white">
             {unread > 99 ? '99+' : unread}
@@ -148,25 +173,37 @@ export function NotificationToastHost() {
   const { state, toasts, dismissToast, markNotificationRead } = useStore()
   const { prefs } = useNotificationPrefs()
   const navigate = useNavigate()
+  const compact = useIsCompactScreen()
   const mine = toasts.filter((t) => {
     if (t.userId !== user.id) return false
+    if (t.summaryCount) return true
     const source = state.notifications.find((n) => n.id === t.notificationId)
     return showsInApp(prefs, source?.resource)
   })
+  // Phones show one pop-up at a time (the rest wait their turn) so the page
+  // stays usable; larger screens show up to three.
+  const visible = mine.slice(0, compact ? 1 : 3)
+  const waiting = mine.length - visible.length
 
   return (
     <div
-      className="pointer-events-none fixed right-3 top-3 z-[70] flex w-[min(22rem,calc(100vw-1.5rem))] flex-col gap-2 sm:right-5 sm:top-4"
+      className="pointer-events-none fixed inset-x-3 top-[max(0.5rem,env(safe-area-inset-top))] z-[70] flex flex-col gap-2 sm:inset-x-auto sm:right-5 sm:top-4 sm:w-[22rem]"
       aria-live="polite"
     >
-      {mine.map((toast) => (
+      {visible.map((toast, i) => (
         <ToastCard
           key={toast.id}
           toast={toast}
+          compact={compact}
+          waiting={i === visible.length - 1 ? waiting : 0}
           onDismiss={() => dismissToast(toast.id)}
           onOpen={() => {
-            markNotificationRead(toast.notificationId)
             dismissToast(toast.id)
+            if (toast.summaryCount) {
+              window.dispatchEvent(new Event(OPEN_NOTIFICATIONS_EVENT))
+              return
+            }
+            markNotificationRead(toast.notificationId)
             if (toast.link) navigate(toast.link)
           }}
         />
@@ -175,12 +212,34 @@ export function NotificationToastHost() {
   )
 }
 
+/** True below the sm breakpoint (640px). */
+function useIsCompactScreen(): boolean {
+  const query = '(max-width: 639px)'
+  const [compact, setCompact] = useState(
+    () => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(query).matches,
+  )
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return
+    const mql = window.matchMedia(query)
+    const on = () => setCompact(mql.matches)
+    on()
+    mql.addEventListener?.('change', on)
+    return () => mql.removeEventListener?.('change', on)
+  }, [])
+  return compact
+}
+
 function ToastCard({
   toast,
+  compact = false,
+  waiting = 0,
   onDismiss,
   onOpen,
 }: {
   toast: NotificationToast
+  compact?: boolean
+  /** Pop-ups queued behind this one (shown as "+N more"). */
+  waiting?: number
   onDismiss: () => void
   onOpen: () => void
 }) {
@@ -231,31 +290,44 @@ function ToastCard({
       <div className={cn('absolute inset-y-0 left-0 w-1', style.bar)} aria-hidden />
       <button
         type="button"
-        className="flex w-full cursor-pointer gap-3 py-3 pl-4 pr-12 text-left transition-colors duration-200 hover:bg-primary-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+        className={cn(
+          'flex w-full cursor-pointer text-left transition-colors duration-200 hover:bg-primary-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary',
+          compact ? 'items-center gap-2.5 py-2 pl-3 pr-11' : 'gap-3 py-3 pl-4 pr-12',
+        )}
         onClick={onOpen}
       >
         <span
           className={cn(
-            'mt-0.5 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl',
+            'inline-flex shrink-0 items-center justify-center rounded-xl',
+            compact ? 'h-8 w-8' : 'mt-0.5 h-9 w-9',
             style.iconWrap,
           )}
         >
           <Icon className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
         </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-sm font-semibold text-ink">{toast.title}</span>
-          <span className="mt-0.5 block text-xs text-ink-500 line-clamp-2">{toast.body}</span>
-          {toast.link ? (
+          <span className={cn('text-sm font-semibold text-ink', compact ? 'block truncate' : 'line-clamp-2')}>
+            {toast.title}
+          </span>
+          <span className={cn('mt-0.5 text-xs text-ink-500', compact ? 'block truncate' : 'line-clamp-2')}>
+            {toast.body}
+          </span>
+          {!compact && (toast.link || toast.summaryCount) ? (
             <span className="mt-1 block text-[11px] font-semibold text-primary">
-              {paused ? 'Open →' : 'Tap to open'}
+              {toast.summaryCount ? 'Tap to see them' : paused ? 'Open →' : 'Tap to open'}
             </span>
           ) : null}
         </span>
+        {waiting > 0 ? (
+          <span className="shrink-0 self-center whitespace-nowrap rounded-full bg-primary-50 px-2 py-0.5 text-[11px] font-semibold text-primary">
+            +{waiting} more
+          </span>
+        ) : null}
       </button>
       <button
         type="button"
-        className="absolute right-1.5 top-1.5 inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-xl text-ink-400 transition-colors duration-200 hover:bg-primary-50 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        aria-label="Dismiss reminder"
+        className="absolute right-0.5 top-1/2 -translate-y-1/2 sm:right-1.5 sm:top-1.5 sm:translate-y-0 inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center rounded-xl text-ink-400 transition-colors duration-200 hover:bg-primary-50 hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+        aria-label="Dismiss notification"
         onClick={(e) => {
           e.stopPropagation()
           onDismiss()
@@ -263,7 +335,7 @@ function ToastCard({
       >
         <X className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
       </button>
-      <div className={cn('h-1', style.track)} aria-hidden>
+      <div className={cn(compact ? 'h-0.5' : 'h-1', style.track)} aria-hidden>
         <div
           className={cn('h-full transition-[width] duration-75 ease-linear', style.bar)}
           style={{ width: `${progress * 100}%` }}

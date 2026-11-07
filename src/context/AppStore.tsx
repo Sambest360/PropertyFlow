@@ -247,7 +247,7 @@ import {
   queuePersistBatch,
   queueUpsert,
 } from '../lib/api/persist'
-import { diffNewNotifications, toastsForNewNotifications } from '../lib/notificationSync'
+import { diffNewNotifications, groupToastBurst, toastsForNewNotifications } from '../lib/notificationSync'
 import {
   SUPPORT_BODY_MAX,
   SUPPORT_SUBJECT_MAX,
@@ -1323,6 +1323,12 @@ function settleMarketplace(state: AppState): AppState {
 export function AppStoreProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AppState>(() => defaultState())
   const [toasts, setToasts] = useState<NotificationToast[]>([])
+  /**
+   * The user whose notifications this tab has already loaded once. Until then
+   * every unread notification looks new: those are not popped up (the bell
+   * buzzes with the count instead); only ones arriving afterwards pop up.
+   */
+  const notificationsPrimedForRef = useRef<string | null>(null)
   /** Session user whose /api/bootstrap has been applied (null until then). */
   const [hydratedForUserId, setHydratedForUserIdState] = useState<string | null>(null)
   /** Same value, readable synchronously by the cache writer (owner of in-memory data). */
@@ -1504,7 +1510,11 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     setHydratedForUserId(sessionUserId)
     setHydrationFailed(false)
     markBootstrapFetched(true, actorKey)
-    if (ingestUserId) {
+    const bootUserId = ingestUserId ?? sessionUserId ?? null
+    const firstLoadForUser =
+      Boolean(bootUserId) && Array.isArray(boot.notifications) && notificationsPrimedForRef.current !== bootUserId
+    if (firstLoadForUser) notificationsPrimedForRef.current = bootUserId
+    if (ingestUserId && !firstLoadForUser) {
       const nextNotes = (boot.notifications as AppNotification[]) ?? []
       const fresh = diffNewNotifications(prevNotifications, nextNotes, ingestUserId)
       const newToasts = toastsForNewNotifications(fresh, prevSuiteAlerts)
@@ -1645,6 +1655,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
     setHydratedForUserId(null)
     setHydrationFailed(false)
     setToasts([])
+    notificationsPrimedForRef.current = null
   }, [setHydratedForUserId])
 
   // Cache owner = user whose data is in memory (hydratedForUserIdRef), captured at
@@ -2909,7 +2920,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         : []
 
       setState((s) => ({ ...s, notifications: [...created, ...s.notifications].slice(0, 300) }))
-      if (nextToasts.length) setToasts((prev) => [...nextToasts, ...prev].slice(0, 6))
+      if (nextToasts.length) setToasts((prev) => [...groupToastBurst(nextToasts), ...prev].slice(0, 6))
       // Save on the server so each person sees it on their own device and gets the email.
       dispatchNotificationsToServer(created)
     },

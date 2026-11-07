@@ -32,6 +32,12 @@ function contentKey(n: AppNotification): string {
   return `${n.title}\u0000${n.body}\u0000${n.link ?? ''}`
 }
 
+/** More than this many at once become one "N new notifications" pop-up. */
+export const TOAST_BURST_LIMIT = 2
+
+/** Event that opens the bell's list (fired by a summary pop-up). */
+export const OPEN_NOTIFICATIONS_EVENT = 'pf:open-notifications'
+
 export function toastsForNewNotifications(
   incoming: readonly AppNotification[],
   suiteAlerts: readonly SuiteAlertRule[],
@@ -57,5 +63,27 @@ export function toastsForNewNotifications(
       tone: toastToneForAction(n.action),
     })
   }
-  return out
+  return groupToastBurst(out)
+}
+
+/**
+ * Several notifications landing together (a cron run, a sign-in) would stack
+ * pop-ups over the whole screen; past the limit they become one pop-up that
+ * counts them and opens the bell.
+ */
+export function groupToastBurst(toasts: NotificationToast[]): NotificationToast[] {
+  if (toasts.length <= TOAST_BURST_LIMIT) return toasts
+  const [first] = toasts
+  const sameTitleStart = toasts.every((t) => t.title.split(':')[0] === first.title.split(':')[0])
+  return [
+    {
+      ...first,
+      id: toastId(),
+      title: `${toasts.length} new notifications`,
+      body: sameTitleStart ? `${first.title.split(':')[0]} and more` : toasts.slice(0, 2).map((t) => t.title).join(' · '),
+      link: undefined,
+      summaryCount: toasts.length,
+      durationMs: Math.max(...toasts.map((t) => t.durationMs)),
+    },
+  ]
 }

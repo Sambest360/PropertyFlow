@@ -249,6 +249,23 @@
   }
 }
 
+@keyframes bellBuzz {
+  0%, 100% { transform: rotate(0); }
+  10%, 30%, 50% { transform: rotate(-16deg); }
+  20%, 40%, 60% { transform: rotate(16deg); }
+  70% { transform: rotate(-6deg); }
+  80% { transform: rotate(6deg); }
+}
+
+.animate-bell-buzz {
+  transform-origin: 50% 10%;
+  animation: bellBuzz 0.9s ease-in-out 2;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-bell-buzz { animation: none; }
+}
+
 @keyframes pfBounce {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(5px); }

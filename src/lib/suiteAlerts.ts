@@ -13,6 +13,8 @@ export type NotificationToast = {
   /** Visual status for the toast strip */
   tone?: 'info' | 'success' | 'warning' | 'danger' | 'pending'
   action?: SuiteAlertAction
+  /** Set on one pop-up standing in for several that arrived together: opens the bell list. */
+  summaryCount?: number
 }
 
 export const SUITE_ALERT_RESOURCES: SuiteAlertResource[] = [
