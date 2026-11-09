@@ -92,6 +92,24 @@ export async function resolveRequestActor(
       if (impersonated && session.platformTier === 'administrator' && impersonated.role === 'super_admin') {
         return actorFromSession(session)
       }
+      // ADM-2: X-Role is the client's word; the target's DB row decides. An
+      // Administrator never acts as a platform-staff row (a super admin or
+      // another Administrator), whatever role the headers claim. Fail closed.
+      if (impersonated && session.platformTier === 'administrator' && impersonated.userId !== session.frontendId) {
+        try {
+          const targetUuid = await resolveUuid('user', impersonated.userId)
+          if (targetUuid) {
+            const rows = await query<{ staff: boolean }>(
+              `SELECT (role = 'SUPER_ADMIN' OR metadata->>'frontend_role' = 'super_admin') AS staff
+                 FROM users WHERE id = $1::uuid`,
+              [targetUuid],
+            )
+            if (rows[0]?.staff) return actorFromSession(session)
+          }
+        } catch {
+          return actorFromSession(session)
+        }
+      }
       if (impersonated) {
         if (impersonated.userId !== session.frontendId) {
           await logImpersonation(c, session, impersonated)
