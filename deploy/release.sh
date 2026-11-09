@@ -24,11 +24,17 @@ MIGRATIONS=(
 echo "== Check .env"
 node --env-file=.env -e 'if (!process.env.DATABASE_URL) { console.error("DATABASE_URL is missing from .env — stopping before any change."); process.exit(1) }'
 
-echo "== Backup"
-bash deploy/backup.sh
+# First pass: back up and pull, then re-run the freshly pulled copy of this
+# script so the MIGRATIONS list above is the one in the commit being deployed.
+# The second pass (PF_RELEASE_PULLED=1) skips backup and pull: they ran once.
+if [ "${PF_RELEASE_PULLED:-}" != "1" ]; then
+  echo "== Backup"
+  bash deploy/backup.sh
 
-echo "== Pull"
-git pull --ff-only
+  echo "== Pull"
+  git pull --ff-only
+  exec env PF_RELEASE_PULLED=1 bash deploy/release.sh
+fi
 
 echo "== Migrations"
 for f in "${MIGRATIONS[@]}"; do

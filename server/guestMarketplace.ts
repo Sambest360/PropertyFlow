@@ -149,8 +149,10 @@ function filterBootstrapForGuestAll(raw: Row, listingId?: string): Row {
       .map((u) => [u.id as string, u.name as string]),
   )
   const publicProperties = properties.map((p): Row => {
-    const { landlordId: _l, agentId, ...rest } = p
+    // liveApproval carries the super admin's private review note (staff only).
+    const { landlordId: _l, agentId, liveApproval: _a, ...rest } = p
     void _l
+    void _a
     const agentName = str(agentId) ? (agentNames.get(agentId as string) ?? null) : null
     return redactLocation({ ...rest, landlordId: '', agentId: null, agentName })
   })

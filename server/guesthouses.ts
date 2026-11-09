@@ -932,6 +932,7 @@ export async function saveGuesthouse(actor: DemoActor, id: string | null, body: 
 export async function deleteGuesthouse(actor: DemoActor, id: string): Promise<{ ok: true }> {
   await ensureGuesthouseTables()
   const me = await manager(actor)
+  if (actor.role === 'ground_agent' || actor.role === 'agent') throw err(403, 'Only an agency admin or the owner can delete a guest house')
   const h = await ownedHouse(me, id)
   const live = await query<{ n: number }>(
     `SELECT COUNT(*)::int AS n FROM guesthouse_bookings b WHERE b.guesthouse_id = $1::uuid AND ${LIVE_BOOKING} AND b.check_out >= CURRENT_DATE`,
@@ -1055,6 +1056,7 @@ export async function actOnGuestBooking(actor: DemoActor, id: string, body: Reco
   const action = String(body.action ?? '')
   const note = str(body.note, 1000) || null
   if (action === 'payment') {
+    if (actor.role === 'ground_agent' || actor.role === 'agent') throw err(403, 'Only an agency admin or the owner can change payment status')
     const ps = String(body.paymentStatus ?? '')
     if (!['unpaid', 'deposit', 'paid', 'refunded'].includes(ps)) throw err(400, 'Unknown payment status')
     await query(`UPDATE guesthouse_bookings SET payment_status = $2, updated_at = NOW() WHERE id = $1::uuid`, [b.id, ps])

@@ -95,6 +95,29 @@ describe('Kelly PR D release/update shared swap (D-S1 D-S2 D-R2)', () => {
   })
 })
 
+describe('release.sh re-reads its migration list after pulling', () => {
+  it('re-execs the freshly pulled script (PF_RELEASE_PULLED) after git pull and before == Migrations', () => {
+    const release = readDeploy('release.sh')
+    const pull = release.search(/git pull --ff-only/)
+    const reexec = release.search(/exec env PF_RELEASE_PULLED=1 bash deploy\/release\.sh/)
+    const migrations = release.search(/== Migrations/)
+    expect(pull, 'git pull --ff-only').toBeGreaterThanOrEqual(0)
+    expect(reexec, 're-exec after the pull').toBeGreaterThan(pull)
+    expect(migrations, 'migrations after the re-exec').toBeGreaterThan(reexec)
+  })
+
+  it('backup and pull are guarded by the same flag, so backup runs exactly once per release', () => {
+    const release = readDeploy('release.sh')
+    const guard = release.search(/if \[ "\$\{PF_RELEASE_PULLED:-\}" != "1" \]; then/)
+    const backup = release.search(/bash deploy\/backup\.sh/)
+    const fi = release.indexOf('\nfi', guard)
+    expect(guard, 'PF_RELEASE_PULLED guard').toBeGreaterThanOrEqual(0)
+    expect(backup).toBeGreaterThan(guard)
+    expect(fi).toBeGreaterThan(release.search(/exec env PF_RELEASE_PULLED=1/))
+    expect(release.match(/bash deploy\/backup\.sh/g)?.length).toBe(1)
+  })
+})
+
 describe('Kelly PR D README certbot drift note', () => {
   it('tells the operator to re-check /assets/ =404 and location = /index.html after certbot', () => {
     const readme = readDeploy('README.md')

@@ -138,3 +138,24 @@ describe('T2 (spec r4, C7): erf size reaches the public card', () => {
     expect((out.units as Array<Record<string, unknown>>)[0].erfSizeSqm).toBe(600)
   })
 })
+
+describe("guest marketplace: the super admin's approval note never reaches guests (MKT-3)", () => {
+  const withApproval = {
+    ...raw,
+    properties: raw.properties.map((p) => ({
+      ...p,
+      liveApproval: { status: 'approved', note: 'INTERNAL x', requestedAt: '2026-11-01T08:00:00.000Z', reviewedAt: '2026-11-02T08:00:00.000Z' },
+    })),
+  }
+  for (const listingId of [undefined, 'P-1']) {
+    it(`list${listingId ? ' ?id=' : ''}: no liveApproval key and no note text`, () => {
+      const out = filterBootstrapForGuest(withApproval, listingId ? { listingId } : {})
+      const props = (out as { properties: Array<Record<string, unknown>> }).properties
+      expect({
+        listed: props.length,
+        keyed: props.filter((p) => Object.prototype.hasOwnProperty.call(p, 'liveApproval')).length,
+        note: JSON.stringify(out).includes('INTERNAL x'),
+      }).toEqual({ listed: 1, keyed: 0, note: false })
+    })
+  }
+})
