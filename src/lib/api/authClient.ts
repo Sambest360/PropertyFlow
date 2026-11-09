@@ -35,6 +35,7 @@ export type AuthUserDto = {
   emailVerified?: boolean
   /** 'administrator' on platform staff below a super admin. */
   platformTier?: 'administrator' | null
+  landlordFocus?: 'rentals' | 'guesthouses' | 'both'
 }
 
 export type AuthResponse = {
@@ -121,6 +122,7 @@ export async function apiRegister(input: {
   role?: string
   profile?: VerificationProfile
   documents?: VerificationDocument[]
+  landlordFocus?: 'rentals' | 'guesthouses' | 'both'
 }): Promise<AuthResponse> {
   const res = await fetchWithTimeout(`${API_BASE}/api/auth/register`, {
     method: 'POST',
@@ -136,6 +138,7 @@ export async function apiRegister(input: {
       role: input.role,
       profile: input.profile,
       documents: input.documents,
+      landlordFocus: input.landlordFocus,
     }),
   })
   const data = await parseJson<AuthResponse>(res)

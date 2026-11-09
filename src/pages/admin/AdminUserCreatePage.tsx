@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { LANDLORD_FOCUS_OPTIONS, type LandlordFocus } from '../../lib/landlordFocus'
 import { isAdministrator } from '../../lib/platformTier'
 import { realAgencies } from '../../lib/agencyKinds'
 import { useFreshCreateDraft } from '../../hooks/useFreshCreateDraft'
@@ -113,6 +114,9 @@ export default function AdminUserCreatePage() {
   /** Agency admins can add team members only — not full Users/portal create. */
   const teamOnly = has('users.manage') && !has('roles.assign') && !isPlatform
   const intentLandlord = searchParams.get('intent') === 'landlord'
+  const [landlordFocus, setLandlordFocus] = useState<LandlordFocus>(
+    searchParams.get('focus') === 'guesthouses' ? 'guesthouses' : searchParams.get('focus') === 'rentals' ? 'rentals' : 'both',
+  )
   const intentContractor = searchParams.get('intent') === 'contractor'
   const intentTeam = (searchParams.get('intent') === 'team' || teamOnly) && !intentLandlord && !intentContractor
   const returnTo =
@@ -473,6 +477,7 @@ export default function AdminUserCreatePage() {
           : undefined,
       dateOfBirth: dateOfBirth.trim() || undefined,
       company: company.trim() || undefined,
+      ...(role === 'landlord' ? { landlordFocus } : {}),
       role,
       agencyId: role === 'super_admin' ? null : selectedAgencyId,
       enabledPermissions: role === 'super_admin' ? undefined : enabledPermissions,
@@ -1053,6 +1058,27 @@ export default function AdminUserCreatePage() {
                         from the Tenants directory later.
                       </p>
                     ) : null}
+                  </div>
+                ) : null}
+
+                {role === 'landlord' ? (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-ink-500">What does this landlord deal in?</p>
+                    <div className="grid gap-2 sm:grid-cols-3" role="radiogroup" aria-label="Landlord type">
+                      {LANDLORD_FOCUS_OPTIONS.map((o) => (
+                        <button
+                          key={o.value}
+                          type="button"
+                          role="radio"
+                          aria-checked={landlordFocus === o.value}
+                          onClick={() => setLandlordFocus(o.value)}
+                          className={`rounded-xl border p-3 text-left text-sm transition ${landlordFocus === o.value ? 'border-primary bg-primary-50 ring-2 ring-primary/20' : 'border-primary-100 hover:border-primary-300'}`}
+                        >
+                          <span className="block font-semibold text-ink">{o.label}</span>
+                          <span className="block text-xs text-ink-400">{o.blurb}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 ) : null}
 

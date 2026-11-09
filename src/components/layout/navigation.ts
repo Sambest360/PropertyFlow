@@ -906,6 +906,8 @@ export type WorkspaceNavActorInput = {
   tenantHasStaffNav?: boolean
   /** An Administrator (below a super admin): the super-admin-only pages are left out. */
   administrator?: boolean
+  /** Landlords: 'rentals' | 'guesthouses' | 'both' (missing = both). */
+  landlordFocus?: 'rentals' | 'guesthouses' | 'both'
 }
 
 /** The nav without the pages an Administrator never sees (src/lib/platformTier.ts). */
@@ -929,8 +931,22 @@ function withHelpAndSupport(entries: WorkspaceNavEntry[]): WorkspaceNavEntry[] {
   return has ? entries : [...entries, { type: 'link', item: { to: '/workspace/help', label: 'Help and Support', icon: LifeBuoy } }]
 }
 
+/** Guest-house-only landlord: their guest houses plus account pages. */
+function buildGuesthouseLandlordNav(): WorkspaceNavEntry[] {
+  return [
+    { type: 'link', item: { to: '/workspace/guesthouses', label: 'Guest houses', icon: BedDouble, end: true } },
+    { type: 'link', item: { to: '/workspace/account/settings', label: 'Settings', icon: Settings } },
+  ]
+}
+
 export function buildWorkspaceNavForActor(input: WorkspaceNavActorInput): WorkspaceNavEntry[] {
-  const nav = withHelpAndSupport(buildWorkspaceNavForActorInner(input))
+  let inner: WorkspaceNavEntry[]
+  if (input.role === 'landlord' && input.landlordFocus === 'guesthouses') inner = buildGuesthouseLandlordNav()
+  else {
+    inner = buildWorkspaceNavForActorInner(input)
+    if (input.role === 'landlord' && input.landlordFocus === 'rentals') inner = stripNavPaths(inner, new Set(['/workspace/guesthouses']))
+  }
+  const nav = withHelpAndSupport(inner)
   return input.administrator ? withoutAdministratorHiddenPages(nav) : nav
 }
 

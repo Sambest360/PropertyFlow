@@ -149,6 +149,7 @@ function dtoToAppUser(dto: AuthUserDto): AppUser {
     mustChangePassword: dto.mustChangePassword === true ? true : undefined,
     emailVerified: dto.emailVerified === false ? false : undefined,
     platformTier: dto.platformTier === 'administrator' ? 'administrator' : undefined,
+    landlordFocus: dto.landlordFocus,
   }
 }
 
@@ -172,6 +173,7 @@ type AuthContextValue = {
     role?: string
     profile?: import('../lib/verification').VerificationProfile
     documents?: import('../lib/verification').VerificationDocument[]
+    landlordFocus?: 'rentals' | 'guesthouses' | 'both'
   }) => Promise<{ user: AppUser; bootstrap: boolean }>
   logout: () => Promise<void>
   /** P0-session (R8): full anonymous wipe — sign out + clear every artifact.

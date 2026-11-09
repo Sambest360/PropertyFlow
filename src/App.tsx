@@ -18,6 +18,7 @@ import { PageSkeleton, skeletonVariantForPath } from './components/loading/PageS
 import { TempPasswordHost } from './components/admin/TempPasswordHost'
 import { GoogleMapsProvider } from './context/GoogleMapsProvider'
 import { useAuth } from './context/AuthContext'
+import { LandlordFocusGate } from './components/routing/LandlordFocusGate'
 import {
   WorkspaceApplicationsRedirect,
   WorkspaceAwareNotFound,
@@ -479,8 +480,8 @@ export default function App() {
                     </CanonicalIdRedirect>
                   }
                 />
-                <Route path="guesthouses" element={<Guard anyOf={['assets.view', 'assets.manage', 'listings.publish']}><GuesthousesPage /></Guard>} />
-                <Route path="guesthouses/:id" element={<Guard anyOf={['assets.view', 'assets.manage', 'listings.publish']}><GuesthouseManagePage /></Guard>} />
+                <Route path="guesthouses" element={<Guard anyOf={['assets.view', 'assets.manage', 'listings.publish']}><LandlordFocusGate side="guesthouses"><GuesthousesPage /></LandlordFocusGate></Guard>} />
+                <Route path="guesthouses/:id" element={<Guard anyOf={['assets.view', 'assets.manage', 'listings.publish']}><LandlordFocusGate side="guesthouses"><GuesthouseManagePage /></LandlordFocusGate></Guard>} />
                 <Route path="operations/escalations" element={<Guard permission="escalations.view"><EscalationsPage /></Guard>} />
                 <Route path="operations/contractors" element={<Guard permission="contractors.view"><ContractorsDirectory /></Guard>} />
                 <Route path="operations/documents" element={<Guard permission="documents.view"><Documents /></Guard>} />
@@ -509,7 +510,7 @@ export default function App() {
                 <Route path="trust/arrears" element={<AgencyOpsGuard anyOf={['trust.view', 'trust.view_arrears']}><TrustArrears /></AgencyOpsGuard>} />
 
                 {/* Portals */}
-                <Route path="portals/owner" element={<Guard permission="portal.owner"><OwnerPortal /></Guard>} />
+                <Route path="portals/owner" element={<Guard permission="portal.owner"><LandlordFocusGate side="rentals"><OwnerPortal /></LandlordFocusGate></Guard>} />
                 <Route path="portals/owner/applications" element={<Guard permission="portal.owner"><OwnerApplicationsPage /></Guard>} />
                 <Route path="portals/tenant" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
                 <Route path="portals/tenant/applications" element={<Guard permission="portal.tenant"><TenantPortal /></Guard>} />
