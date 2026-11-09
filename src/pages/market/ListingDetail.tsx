@@ -332,7 +332,7 @@ export default function ListingDetail() {
         <p className="font-semibold text-ink">Listing not found</p>
         <p className="mt-2 text-sm text-ink-500">It may have been unpublished or the link is outdated.</p>
         <div className="mt-6 flex justify-center">
-          <BackButton to="/browse" label="Back to browse" />
+          <BackButton to="/browse" preferHistory label="Back to browse" />
         </div>
       </div>
     )
@@ -363,7 +363,7 @@ export default function ListingDetail() {
           </p>
         )}
         <div className="mt-6 flex justify-center">
-          <BackButton to="/browse" label="Back to browse" />
+          <BackButton to="/browse" preferHistory label="Back to browse" />
         </div>
       </div>
     )
@@ -870,7 +870,7 @@ export default function ListingDetail() {
               <Heart className={cn('h-4 w-4', wishlisted && 'fill-accent text-accent')} />
               {wishlisted ? 'Saved' : 'Save'}
             </button>
-            <BackButton to="/browse" label="Back to search" />
+            <BackButton to="/browse" preferHistory label="Back to search" />
           </ActionButtonRow>
         </div>
 

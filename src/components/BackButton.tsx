@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { Button, cn } from './ui'
 
@@ -10,13 +10,18 @@ export function BackButton({
   shortLabel,
   onClick,
   className,
+  preferHistory,
 }: {
   to?: string
   label: string
   shortLabel?: string
   onClick?: () => void
   className?: string
+  /** Go back to the page the visitor came from (keeps their filters, e.g. To rent); `to` is used only when they arrived directly. */
+  preferHistory?: boolean
 }) {
+  const location = useLocation()
+  const navigate = useNavigate()
   const icon = <ArrowLeft className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
   const text = shortLabel ? (
     <>
@@ -27,13 +32,16 @@ export function BackButton({
     label
   )
 
-  if (onClick) {
+  const cameFromApp = location.key !== 'default'
+  const handleClick = onClick ?? (preferHistory && cameFromApp ? () => navigate(-1) : undefined)
+
+  if (handleClick) {
     return (
       <Button
         type="button"
         variant="secondary"
         className={cn('min-h-11 cursor-pointer', className)}
-        onClick={onClick}
+        onClick={handleClick}
       >
         {icon}
         {text}

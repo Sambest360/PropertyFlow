@@ -1,6 +1,6 @@
 /** Public: one guest house — photos, rooms, live availability, price and booking (/stays/:id). */
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, BedDouble, CheckCircle2, Clock, MapPin, ShieldCheck, Users, Zap } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import {
@@ -19,6 +19,8 @@ import { AvailabilityCalendar } from './AvailabilityCalendar'
 export default function StayDetailPage() {
   const { id = '' } = useParams()
   const [params, setParams] = useSearchParams()
+  const location = useLocation()
+  const navigate = useNavigate()
   const { user, isAuthenticated } = useAuth()
   const checkIn = params.get('checkIn') ?? undefined
   const checkOut = params.get('checkOut') ?? undefined
@@ -130,8 +132,8 @@ export default function StayDetailPage() {
   const canBook = Boolean(room && checkIn && checkOut && room.available)
   return (
     <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-      <Link to={`/stays${checkIn && checkOut ? `?checkIn=${checkIn}&checkOut=${checkOut}&guests=${guests}` : ''}`} className="inline-flex items-center gap-1 text-sm text-ink-400 hover:text-ink">
-        <ArrowLeft className="h-4 w-4" /> All guest houses
+      <Link to={`/stays${checkIn && checkOut ? `?checkIn=${checkIn}&checkOut=${checkOut}&guests=${guests}` : ''}`} onClick={(e) => { if (location.key !== 'default') { e.preventDefault(); navigate(-1) } }} className="inline-flex items-center gap-1 text-sm text-ink-400 hover:text-ink">
+        <ArrowLeft className="h-4 w-4" /> Back
       </Link>
       <h1 className="mt-3 text-2xl font-semibold tracking-tight text-ink sm:text-3xl">{house.name}</h1>
       <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-400">
