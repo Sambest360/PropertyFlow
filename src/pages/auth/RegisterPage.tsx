@@ -28,6 +28,7 @@ import {
   missingRequiredDocs,
   type VerificationDocument,
 } from '../../lib/verification'
+import { LANDLORD_FOCUS_OPTIONS, type LandlordFocus } from '../../lib/landlordFocus'
 
 const ICON_STROKE = 1.6
 const OTHER_TRADE = 'Other'
@@ -96,6 +97,7 @@ export default function RegisterPage() {
   const next = params.get('next') || '/workspace'
 
   const [step, setStep] = useState(1)
+  const [landlordFocus, setLandlordFocus] = useState<LandlordFocus | null>(null)
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
@@ -198,6 +200,7 @@ export default function RegisterPage() {
 
   const validateStep3 = (): string | null => {
     if (role === 'tenant') return null
+    if (role === 'landlord' && !landlordFocus) return 'Choose what you deal in: rentals & sales, guest houses, or both'
     if (!idNumber.trim()) return 'ID or passport number is required'
     if (role === 'contractor') {
       if (!company.trim()) return 'Trading name is required'
@@ -298,8 +301,12 @@ export default function RegisterPage() {
         role,
         profile,
         documents: role === 'tenant' ? undefined : documents,
+        landlordFocus: role === 'landlord' ? (landlordFocus ?? 'both') : undefined,
       })
-      navigate(postRegisterPath(role, result.bootstrap, next), { replace: true })
+      navigate(
+        role === 'landlord' && landlordFocus === 'guesthouses' && !result.bootstrap ? '/workspace/guesthouses' : postRegisterPath(role, result.bootstrap, next),
+        { replace: true },
+      )
     } catch (err) {
       if (await handleRegistrationRedirect(err)) return
       await showAuthError(err instanceof Error ? err.message : 'Registration failed', err)
@@ -486,6 +493,24 @@ export default function RegisterPage() {
 
         {!bootstrapNeeded && step === 3 && role === 'landlord' && (
           <div className="space-y-4">
+            <fieldset>
+              <legend className="mb-2 text-sm font-medium text-ink">What do you deal in?</legend>
+              <div className="grid gap-2 sm:grid-cols-3" role="radiogroup">
+                {LANDLORD_FOCUS_OPTIONS.map((o) => (
+                  <button
+                    key={o.value}
+                    type="button"
+                    role="radio"
+                    aria-checked={landlordFocus === o.value}
+                    onClick={() => setLandlordFocus(o.value)}
+                    className={`rounded-xl border p-3 text-left transition ${landlordFocus === o.value ? 'border-primary bg-primary-50 ring-2 ring-primary/20' : 'border-primary-100 hover:border-primary-300'}`}
+                  >
+                    <span className="block text-sm font-semibold text-ink">{o.label}</span>
+                    <span className="block text-xs text-ink-400">{o.blurb}</span>
+                  </button>
+                ))}
+              </div>
+            </fieldset>
             <AuthField label="Trading / portfolio name" htmlFor="reg-company" hint="Optional">
               <Input
                 id="reg-company"

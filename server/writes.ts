@@ -911,6 +911,7 @@ async function upsertUser(feId: string, uuid: string, d: Record<string, unknown>
   for (const k of ['enabledPermissions', 'licenseStatus', 'mentorId', 'commissionSharePct']) {
     if (has(k)) meta[k] = d[k] ?? null
   }
+  if (has('landlordFocus')) meta.landlordFocus = d.landlordFocus === 'rentals' || d.landlordFocus === 'guesthouses' ? d.landlordFocus : 'both'
   // A list saved now is taken exactly as saved (no implied newer permissions).
   if (has('enabledPermissions')) meta.permissionsVersion = PERMISSIONS_VERSION
   if (d.verification && typeof d.verification === 'object') {

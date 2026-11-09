@@ -792,6 +792,7 @@ export async function buildBootstrap(opts?: {
       enabledPermissions:
         normalizeStoredPermissions(meta.enabledPermissions, meta.permissionsVersion) ?? undefined,
       licenseStatus: meta.licenseStatus ?? undefined,
+      ...(feRole === 'landlord' ? { landlordFocus: meta.landlordFocus === 'rentals' || meta.landlordFocus === 'guesthouses' ? meta.landlordFocus : 'both' } : {}),
       mentorId: meta.mentorId ?? undefined,
       commissionSharePct:
         typeof meta.commissionSharePct === 'number' ? meta.commissionSharePct : undefined,

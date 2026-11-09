@@ -252,6 +252,8 @@ export type AppUser = {
   mentorId?: string | null
   /** Licensing posture for compliance tracking. */
   licenseStatus?: LicenseStatus
+  /** Landlords only: 'rentals' | 'guesthouses' | 'both' (missing = both). */
+  landlordFocus?: 'rentals' | 'guesthouses' | 'both'
   /** Share of fee retained by the agent (rest to the agency). */
   commissionSharePct?: number
   /**

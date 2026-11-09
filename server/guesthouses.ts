@@ -777,7 +777,13 @@ async function manager(actor: DemoActor): Promise<Me> {
   if (!MANAGER_ROLES.has(actor.role)) throw err(403, 'Only agencies and landlords manage guest houses')
   const id = await actorUuid(actor)
   if (!id) throw err(401, 'Sign in first')
-  const rows = await query<{ client_id: string | null }>(`SELECT client_id::text AS client_id FROM users WHERE id = $1::uuid`, [id])
+  const rows = await query<{ client_id: string | null; focus: string | null }>(
+    `SELECT client_id::text AS client_id, metadata->>'landlordFocus' AS focus FROM users WHERE id = $1::uuid`,
+    [id],
+  )
+  if (actor.role === 'landlord' && rows[0]?.focus === 'rentals') {
+    throw err(403, 'Your account is set up for rentals and sales only. Ask support to add guest houses.')
+  }
   return { id, role: actor.role, clientId: rows[0]?.client_id ?? null }
 }
 

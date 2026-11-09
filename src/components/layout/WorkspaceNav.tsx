@@ -61,6 +61,7 @@ export function useWorkspaceNav(): WorkspaceNavEntry[] {
       tenantHasStaffNav,
       tenantOccupancyReady: tenantHasApprovedOccupancy(state.applications, state.tenancies, user),
       administrator: isAdministrator(user),
+      landlordFocus: user?.landlordFocus,
     })
   }, [has, hasAny, role, user, state.applications, state.tenancies])
 }

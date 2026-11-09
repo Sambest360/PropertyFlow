@@ -464,6 +464,7 @@ app.post('/api/auth/register', async (c) => {
         dataUrl: string
         uploadedAt: string
       }>
+      landlordFocus?: string
     }
     const emailGate = authEmailRateLimit(String(body.email ?? ''))
     if (!emailGate.ok) {
@@ -480,6 +481,7 @@ app.post('/api/auth/register', async (c) => {
       role: body.role,
       profile: body.profile,
       documents: body.documents,
+      landlordFocus: body.landlordFocus,
     })
     const token = issueSession(c, result.user)
     // Welcome email + confirm-your-email link; registration never waits on email.

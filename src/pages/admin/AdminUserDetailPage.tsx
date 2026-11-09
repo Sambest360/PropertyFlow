@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
+import { LANDLORD_FOCUS_OPTIONS, landlordFocusLabel, normalizeLandlordFocus, type LandlordFocus } from '../../lib/landlordFocus'
 import { isAdministrator, isFullSuperAdmin, platformRoleLabel } from '../../lib/platformTier'
 import { Link, Navigate, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import {
@@ -274,6 +275,7 @@ export default function AdminUserDetailPage() {
             mentorName={mentorName}
             canReview={isPlatform}
             onVerificationUpdated={(verification) => updateUser(user.id, { verification })}
+            onSetLandlordFocus={mutable ? (landlordFocus) => updateUser(user.id, { landlordFocus }) : undefined}
           />
         ) : null}
 
@@ -314,6 +316,7 @@ function OverviewTab({
   mentorName,
   canReview,
   onVerificationUpdated,
+  onSetLandlordFocus,
 }: {
   user: AppUser
   agencyName: string
@@ -327,6 +330,7 @@ function OverviewTab({
   mentorName: string | null
   canReview: boolean
   onVerificationUpdated: (verification: UserVerification) => void
+  onSetLandlordFocus?: (focus: LandlordFocus) => void
 }) {
   const openLeads = linked.leads.filter(
     (l) => !['Lease Signed', 'Sale Completed', 'Rejected'].includes(l.stage),
@@ -406,6 +410,22 @@ function OverviewTab({
           <FlatField label="Role" value={platformRoleLabel(user) ?? roleLabels[user.role]} />
           <FlatField label="Agency" value={agencyName} />
           <FlatField label="Status" value={accountStatusLabel(user)} />
+          {user.role === 'landlord' ? (
+            onSetLandlordFocus ? (
+              <label className="block text-sm">
+                <span className="text-xs font-medium text-ink-500">Deals in</span>
+                <select
+                  className="mt-1 h-9 w-full rounded-lg border border-primary-100 bg-white px-2 text-sm text-ink"
+                  value={normalizeLandlordFocus(user.landlordFocus)}
+                  onChange={(e) => onSetLandlordFocus(e.target.value as LandlordFocus)}
+                >
+                  {LANDLORD_FOCUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </label>
+            ) : (
+              <FlatField label="Deals in" value={landlordFocusLabel(user.landlordFocus)} />
+            )
+          ) : null}
           {mentorName ? <FlatField label="Mentor" value={mentorName} /> : null}
           {user.commissionSharePct != null ? (
             <FlatField label="Commission share" value={`${user.commissionSharePct}%`} />

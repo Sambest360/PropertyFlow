@@ -60,6 +60,8 @@ export type SessionUser = {
   emailVerified?: boolean
   /** 'administrator': platform staff below a super admin (src/lib/platformTier.ts). */
   platformTier?: PlatformTier | null
+  /** Landlords only: 'rentals' | 'guesthouses' | 'both'. */
+  landlordFocus?: 'rentals' | 'guesthouses' | 'both'
 }
 
 export type VerificationDocMeta = {
@@ -288,6 +290,7 @@ export async function rowToSession(row: UserRow): Promise<SessionUser> {
           : undefined,
     verification,
     mustChangePassword: meta.mustChangePassword === true,
+    ...(feRole === 'landlord' ? { landlordFocus: landlordFocusOf(meta.landlordFocus) } : {}),
     emailVerified: meta.emailVerification !== 'pending',
     platformTier: platformTierFrom(feRole, meta),
   }
@@ -414,6 +417,8 @@ export type RegisterInput = {
   role?: string
   profile?: Record<string, unknown>
   documents?: VerificationDocMeta[]
+  /** Landlords: what they deal in. */
+  landlordFocus?: unknown
 }
 
 const LANDLORD_PORTFOLIO_PERMISSIONS = [
@@ -462,6 +467,10 @@ async function createLandlordPortfolio(opts: {
     ],
   )
   return { clientUuid, agencyFeId }
+}
+
+export function landlordFocusOf(v: unknown): 'rentals' | 'guesthouses' | 'both' {
+  return v === 'rentals' || v === 'guesthouses' ? v : 'both'
 }
 
 export async function registerUser(input: RegisterInput): Promise<{ user: SessionUser; bootstrap: boolean }> {
@@ -568,6 +577,7 @@ function buildRegisterMetadata(
     mustChangePassword: false,
     emailVerification: 'pending',
   }
+  if (roleFe === 'landlord') base.landlordFocus = landlordFocusOf(input.landlordFocus)
   if (roleFe === 'landlord' || roleFe === 'contractor') {
     const docs = Array.isArray(input.documents) ? input.documents : []
     base.verification = {
