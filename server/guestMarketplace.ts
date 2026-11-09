@@ -23,15 +23,9 @@
 
 import { isFutureViewingSlot } from './viewingSlotTime.js'
 import { isOccupiedAdvert } from '../src/lib/occupiedAdvert.js'
+import { PUBLIC_UNIT_STATUS_KEYS } from './publicUnitStatus.js'
 
 const PUBLIC_LISTING_STATUSES = new Set(['Published', 'Featured', 'Under Offer'])
-const PUBLIC_UNIT_STATUS_KEYS = new Set([
-  'PUBLISHED',
-  'FEATURED',
-  'VACANT',
-  'UNDER_OFFER',
-  'AVAILABLE',
-])
 
 type Row = Record<string, unknown>
 

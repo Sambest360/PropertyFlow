@@ -11,8 +11,9 @@ import { query } from './db.js'
 import { resolveUuid } from './entityMap.js'
 import { resolveRequestActor } from './requestActor.js'
 import { assertUnitTitleTypeConfirmed } from './listingTitleTypeConfirm.js'
+import { PUBLIC_UNIT_STATUS_KEYS } from './publicUnitStatus.js'
 
-const PUBLIC_KEYS = new Set(['PUBLISHED', 'FEATURED', 'UNDER_OFFER', 'AVAILABLE'])
+const PUBLIC_KEYS = PUBLIC_UNIT_STATUS_KEYS
 
 let ready: Promise<void> | null = null
 export function ensureListingApprovalsTable(): Promise<void> {

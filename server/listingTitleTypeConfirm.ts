@@ -5,16 +5,15 @@
 import { query } from './db.js'
 import { titleTypeWarning } from '../src/lib/listingSizes.js'
 import { propertyTypeToDb } from '../src/lib/propertyType.js'
+import { PUBLIC_UNIT_STATUS_KEYS } from './publicUnitStatus.js'
 
 export const TITLE_TYPE_CONFIRM_EVENT = 'listing_title_type_confirmed'
 export const TITLE_TYPE_CONFIRMATION_REQUIRED = 'TITLE_TYPE_CONFIRMATION_REQUIRED'
 export const TITLE_TYPE_PLAIN =
   "The listing title and the chosen type don't match. Change the type, or confirm you want to publish with this title."
 
-const PUBLIC_KEYS = new Set(['PUBLISHED', 'FEATURED', 'UNDER_OFFER', 'AVAILABLE'])
-
 export function isPublicUnitStatus(statusKey: string | null | undefined): boolean {
-  return PUBLIC_KEYS.has(String(statusKey ?? '').toUpperCase())
+  return PUBLIC_UNIT_STATUS_KEYS.has(String(statusKey ?? '').toUpperCase())
 }
 
 /** Persist any non-empty explicit type; ignore typeInferred; never guess. */
