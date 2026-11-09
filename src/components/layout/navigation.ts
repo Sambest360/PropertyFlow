@@ -2,6 +2,7 @@ import type { LucideIcon } from 'lucide-react'
 import { isAdministratorHiddenPath } from '../../lib/platformTier'
 import {
   BadgeCheck,
+  BedDouble,
   Banknote,
   CalendarClock,
   Flag,
@@ -98,6 +99,12 @@ export function getWorkspaceNav(): WorkspaceNavEntry[] {
             label: 'All properties',
             anyOf: ['assets.view', 'listings.publish'],
             icon: Building2,
+          },
+          {
+            to: '/workspace/guesthouses',
+            label: 'Guest houses',
+            anyOf: ['assets.view', 'assets.manage', 'listings.publish'],
+            icon: BedDouble,
           },
         ],
       },
@@ -1009,6 +1016,7 @@ export const marketplaceCategories: MarketplaceNavItem[] = [
   { to: '/browse?mode=rent', label: 'Rent', icon: KeyRound },
   { to: '/browse?mode=commercial', label: 'Commercial', icon: Building2 },
   { to: '/browse?mode=shared', label: 'Shared', icon: Users },
+  { to: '/stays', label: 'Guest houses', icon: BedDouble },
   { to: '/calculators', label: 'Calculators', icon: Calculator },
 ]
 
@@ -1026,6 +1034,7 @@ export const marketplaceFooter = [
       ['Apartments & flats', '/browse?mode=rent&type=Apartment'],
       ['Townhouses to rent', '/browse?mode=rent&type=Townhouse'],
       ['Rooms & shared accommodation', '/browse?mode=shared'],
+      ['Guest houses & short stays', '/stays'],
       ['Student accommodation', '/browse?mode=rent&type=Student%20Accommodation'],
     ],
   },

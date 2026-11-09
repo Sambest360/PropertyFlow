@@ -233,3 +233,8 @@ export function notificationDispatchRateLimit(actorKey: string, count: number): 
   }
   return last
 }
+
+/** Guest-house bookings and booking lookups: 15 per IP per 15 minutes. */
+export function guesthouseBookingIpRateLimit(ip: string): Gate {
+  return hit(`gh-book:${ip}`, 15, MIN15)
+}
