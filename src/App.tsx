@@ -34,6 +34,11 @@ const PrivacyPage = lazy(() => import('./pages/legal/PrivacyPage'))
 const TermsPage = lazy(() => import('./pages/legal/TermsPage'))
 const ContactPage = lazy(() => import('./pages/ContactPage'))
 const SeoLandingPage = lazy(() => import('./pages/market/SeoLandingPage'))
+const StaysBrowsePage = lazy(() => import('./pages/stays/StaysBrowsePage'))
+const StayDetailPage = lazy(() => import('./pages/stays/StayDetailPage'))
+const MyStaysPage = lazy(() => import('./pages/stays/MyStaysPage'))
+const GuesthousesPage = lazy(() => import('./pages/guesthouses/GuesthousesPage'))
+const GuesthouseManagePage = lazy(() => import('./pages/guesthouses/GuesthouseManagePage'))
 const LoginPage = lazy(() => import('./pages/auth/LoginPage'))
 const ForgotPasswordPage = lazy(() => import('./pages/auth/ForgotPasswordPage'))
 const SetPasswordPage = lazy(() => import('./pages/auth/SetPasswordPage'))
@@ -313,6 +318,9 @@ export default function App() {
                   }
                 />
                 {/* Area pages for search engines: /to-rent/gqeberha, /for-sale/cape-town, /rooms-to-rent/durban */}
+                <Route path="stays" element={<Suspense fallback={<PageFallback />}><StaysBrowsePage /></Suspense>} />
+                <Route path="stays/bookings" element={<Suspense fallback={<PageFallback />}><MyStaysPage /></Suspense>} />
+                <Route path="stays/:id" element={<Suspense fallback={<PageFallback />}><StayDetailPage /></Suspense>} />
                 <Route path="to-rent/:city" element={<Suspense fallback={<PageFallback />}><SeoLandingPage kind="rent" /></Suspense>} />
                 <Route path="for-sale/:city" element={<Suspense fallback={<PageFallback />}><SeoLandingPage kind="sale" /></Suspense>} />
                 <Route path="rooms-to-rent/:city" element={<Suspense fallback={<PageFallback />}><SeoLandingPage kind="rooms" /></Suspense>} />
@@ -471,6 +479,8 @@ export default function App() {
                     </CanonicalIdRedirect>
                   }
                 />
+                <Route path="guesthouses" element={<Guard anyOf={['assets.view', 'assets.manage', 'listings.publish']}><GuesthousesPage /></Guard>} />
+                <Route path="guesthouses/:id" element={<Guard anyOf={['assets.view', 'assets.manage', 'listings.publish']}><GuesthouseManagePage /></Guard>} />
                 <Route path="operations/escalations" element={<Guard permission="escalations.view"><EscalationsPage /></Guard>} />
                 <Route path="operations/contractors" element={<Guard permission="contractors.view"><ContractorsDirectory /></Guard>} />
                 <Route path="operations/documents" element={<Guard permission="documents.view"><Documents /></Guard>} />

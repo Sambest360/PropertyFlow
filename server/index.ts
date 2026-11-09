@@ -1580,6 +1580,110 @@ app.post('/api/contractor-bookings/:id', async (c) => {
   }
 })
 
+/** Guest houses: short-stay bookings (server/guesthouses.ts, migration 044). */
+{
+  const gh = () => import('./guesthouses.js')
+  const optionalActor = async (c: Parameters<typeof parseDemoActor>[0]) => {
+    const raw = await resolveRequestActor(c, null).catch(() => null)
+    return raw ? enrichActor(raw) : null
+  }
+  const fail = (c: { json: (b: unknown, s: number) => Response }, e: unknown) =>
+    c.json({ error: 'guesthouse_failed', message: e instanceof Error ? e.message : String(e) }, errStatus(e) as never)
+  const gate = async (c: Parameters<typeof parseDemoActor>[0]) => {
+    const { guesthouseBookingIpRateLimit } = await import('./rateLimit.js')
+    const g = guesthouseBookingIpRateLimit(clientIp(c))
+    if (!g.ok) throw Object.assign(new Error('Too many attempts. Wait a few minutes and try again.'), { status: 429 })
+  }
+
+  // Public (guests)
+  app.get('/api/stays', async (c) => {
+    try { return c.json(await (await gh()).listPublicGuesthouses(c.req.query())) } catch (e) { return fail(c, e) }
+  })
+  app.get('/api/stays/bookings/mine', async (c) => {
+    try { return c.json(await (await gh()).myGuestBookings(await requireActor(c))) } catch (e) { return fail(c, e) }
+  })
+  app.post('/api/stays/bookings/lookup', async (c) => {
+    try {
+      await gate(c)
+      const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+      return c.json(await (await gh()).lookupGuestBooking(String(b.reference ?? ''), String(b.email ?? '')))
+    } catch (e) { return fail(c, e) }
+  })
+  app.post('/api/stays/bookings/cancel', async (c) => {
+    try {
+      await gate(c)
+      const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+      return c.json(await (await gh()).cancelGuestBooking(String(b.reference ?? ''), String(b.email ?? '')))
+    } catch (e) { return fail(c, e) }
+  })
+  app.post('/api/stays/bookings', async (c) => {
+    try {
+      await gate(c)
+      const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+      return c.json(await (await gh()).createGuestBooking(await optionalActor(c), b))
+    } catch (e) { return fail(c, e) }
+  })
+  app.get('/api/stays/:id', async (c) => {
+    try { return c.json(await (await gh()).getPublicGuesthouse(c.req.param('id'), c.req.query())) } catch (e) { return fail(c, e) }
+  })
+
+  // Management (agencies, landlords)
+  app.get('/api/guesthouses', async (c) => {
+    try { return c.json(await (await gh()).listManagedGuesthouses(await requireActor(c))) } catch (e) { return fail(c, e) }
+  })
+  app.get('/api/guesthouses/bookings', async (c) => {
+    try { return c.json(await (await gh()).listManagedBookings(await requireActor(c))) } catch (e) { return fail(c, e) }
+  })
+  app.post('/api/guesthouses/bookings/:id', async (c) => {
+    try {
+      const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+      return c.json(await (await gh()).actOnGuestBooking(await requireActor(c), c.req.param('id'), b))
+    } catch (e) { return fail(c, e) }
+  })
+  app.post('/api/guesthouses', async (c) => {
+    try {
+      const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+      return c.json(await (await gh()).saveGuesthouse(await requireActor(c), null, b))
+    } catch (e) { return fail(c, e) }
+  })
+  app.get('/api/guesthouses/:id', async (c) => {
+    try { return c.json(await (await gh()).getManagedGuesthouse(await requireActor(c), c.req.param('id'))) } catch (e) { return fail(c, e) }
+  })
+  app.put('/api/guesthouses/:id', async (c) => {
+    try {
+      const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+      return c.json(await (await gh()).saveGuesthouse(await requireActor(c), c.req.param('id'), b))
+    } catch (e) { return fail(c, e) }
+  })
+  app.delete('/api/guesthouses/:id', async (c) => {
+    try { return c.json(await (await gh()).deleteGuesthouse(await requireActor(c), c.req.param('id'))) } catch (e) { return fail(c, e) }
+  })
+  app.post('/api/guesthouses/:id/rooms', async (c) => {
+    try {
+      const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+      return c.json(await (await gh()).saveRoom(await requireActor(c), c.req.param('id'), null, b))
+    } catch (e) { return fail(c, e) }
+  })
+  app.put('/api/guesthouses/:id/rooms/:roomId', async (c) => {
+    try {
+      const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+      return c.json(await (await gh()).saveRoom(await requireActor(c), c.req.param('id'), c.req.param('roomId'), b))
+    } catch (e) { return fail(c, e) }
+  })
+  app.delete('/api/guesthouses/:id/rooms/:roomId', async (c) => {
+    try { return c.json(await (await gh()).deleteRoom(await requireActor(c), c.req.param('id'), c.req.param('roomId'))) } catch (e) { return fail(c, e) }
+  })
+  app.post('/api/guesthouses/:id/blocks', async (c) => {
+    try {
+      const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>
+      return c.json(await (await gh()).addBlock(await requireActor(c), c.req.param('id'), b))
+    } catch (e) { return fail(c, e) }
+  })
+  app.delete('/api/guesthouses/:id/blocks/:blockId', async (c) => {
+    try { return c.json(await (await gh()).removeBlock(await requireActor(c), c.req.param('id'), c.req.param('blockId'))) } catch (e) { return fail(c, e) }
+  })
+}
+
 /** Lease inventory, move-in / move-out inspections and deposit deductions. */
 registerInspectionRoutes(app)
 registerAgencyProfileRoutes(app)
