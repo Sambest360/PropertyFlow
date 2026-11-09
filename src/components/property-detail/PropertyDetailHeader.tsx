@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Globe, Loader2, Pencil, Star, Trash2, RotateCcw } from 'lucide-react'
+import { EyeOff, Globe, Loader2, Pencil, Star, Trash2, RotateCcw } from 'lucide-react'
 import type { PropertyAsset } from '../../types/domain'
 import { ActionButtonRow } from '../ActionButtonRow'
 import { BackButton } from '../BackButton'
@@ -27,6 +27,7 @@ export function PropertyDetailHeader({
   onPublish,
   onToggleFeatured,
   canFeature = false,
+  onTakeDown,
   publishBusy,
   canDelete,
   deleteBlockedReason,
@@ -54,6 +55,8 @@ export function PropertyDetailHeader({
   onToggleFeatured: () => void
   /** Featuring is a paid platform service — super admins only. */
   canFeature?: boolean
+  /** The owner only, on a live listing: take it down (hidden, the agency is told). */
+  onTakeDown?: () => void
   publishBusy?: boolean
   canDelete?: boolean
   deleteBlockedReason?: string | null
@@ -150,6 +153,12 @@ export function PropertyDetailHeader({
                   aria-hidden
                 />
                 {property.featured ? 'Unfeature' : 'Feature'}
+              </Button>
+            ) : null}
+            {onTakeDown && !deleted ? (
+              <Button variant="secondary" className="min-h-11 cursor-pointer" onClick={onTakeDown} disabled={archiveActionBusy}>
+                <EyeOff className="h-4 w-4" strokeWidth={ICON_STROKE} aria-hidden />
+                Take down
               </Button>
             ) : null}
             {canDelete && !deleted && onDelete ? (

@@ -66,10 +66,10 @@ describe.skipIf(!url)('MKT-2: VACANT needs approval like PUBLISHED (real app + P
   }
 
   const uuids: Record<string, string> = {}
-  const save = async (id: string, title: string, statusKey: string, status: string) => {
+  const save = async (id: string, title: string, statusKey: string, status: string, who: UserKey = 'adminA') => {
     const res = await app.request('/api/persist', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens.adminA}` },
+      headers: { 'content-type': 'application/json', Authorization: `Bearer ${tokens[who]}` },
       body: JSON.stringify({
         resource: 'property',
         action: 'upsert',
@@ -154,5 +154,34 @@ describe.skipIf(!url)('MKT-2: VACANT needs approval like PUBLISHED (real app + P
     const after = await stored(P_VAC)
     const text = await marketText()
     expect({ status: res.status, approval: after?.approval, listed: text.includes(TITLE_VAC) }).toEqual({ status: 200, approval: 'approved', listed: true })
+  })
+
+  describe('C2: status keys with spaces go through the gate like the trimmed key', () => {
+    it("b. agency ' VACANT' and 'VACANT ' are stored DRAFT with a pending approval", async () => {
+      const r1 = await save('mkt2-c2-lead', 'MKT2 C2 leading space flat', ' VACANT', 'Published')
+      const r2 = await save('mkt2-c2-trail', 'MKT2 C2 trailing space flat', 'VACANT ', 'Published')
+      const a = await stored('mkt2-c2-lead')
+      const b = await stored('mkt2-c2-trail')
+      expect({ s: [r1.status, r2.status], a: [a?.status, a?.approval], b: [b?.status, b?.approval] }).toEqual({
+        s: [200, 200], a: ['DRAFT', 'pending'], b: ['DRAFT', 'pending'],
+      })
+    })
+
+    it("c. the owner's ' vacant ' is stored VACANT, approved and public", async () => {
+      const res = await save('mkt2-c2-owner', 'MKT2 C2 owner vacant flat', ' vacant ', 'Published', 'superAdmin')
+      const row = await stored('mkt2-c2-owner')
+      const text = await marketText()
+      expect({ status: res.status, key: row?.status, approval: row?.approval, listed: text.includes('MKT2 C2 owner vacant flat') }).toEqual({
+        status: 200, key: 'VACANT', approval: 'approved', listed: true,
+      })
+    })
+
+    it('d. legit, unchanged: PUBLISHED -> DRAFT + pending; OCCUPIED stored with no approval row', async () => {
+      await save('mkt2-c2-pub', 'MKT2 C2 published flat', 'PUBLISHED', 'Published')
+      await save('mkt2-c2-occ', 'MKT2 C2 occupied flat', 'OCCUPIED', 'Rented')
+      const pub = await stored('mkt2-c2-pub')
+      const occ = await stored('mkt2-c2-occ')
+      expect({ pub: [pub?.status, pub?.approval], occ: [occ?.status, occ?.approval] }).toEqual({ pub: ['DRAFT', 'pending'], occ: ['OCCUPIED', null] })
+    })
   })
 })

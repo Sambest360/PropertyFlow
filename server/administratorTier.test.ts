@@ -94,3 +94,38 @@ describe('Administrator tier: user writes', () => {
     expect((self as { data: Record<string, unknown> }).data.platformTier).toBeUndefined()
   })
 })
+
+describe('ADM-4: Administrators and a peer Administrator\'s sign-in email and role', () => {
+  const dataOf = (b: unknown) => (b as { data: Record<string, unknown> }).data
+
+  it("an Administrator cannot change another Administrator's email", async () => {
+    await expect(enforceUserWritePolicy(adm, body('u-adm2', 'update', { name: 'X', email: 'new@example.com' }), existing)).rejects.toThrow(/sign-in email/)
+  })
+
+  it('a peer edit resending the same email passes', async () => {
+    const b = body('u-adm2', 'update', { name: 'X', email: ' ADM2@Example.com ', phone: '+27 1', active: false })
+    await enforceUserWritePolicy(adm, b, existing)
+    expect(dataOf(b)).toMatchObject({ name: 'X', phone: '+27 1', active: false })
+  })
+
+  it("an Administrator cannot change another Administrator's role", async () => {
+    await expect(enforceUserWritePolicy(adm, body('u-adm2', 'update', { role: 'tenant' }), existing)).rejects.toThrow(/role/)
+  })
+
+  it('credential fields on a peer are dropped', async () => {
+    const b = body('u-adm2', 'update', { name: 'X', password: 'p'.repeat(12), tempPassword: 't'.repeat(12), passwordHash: 'h' })
+    await enforceUserWritePolicy(adm, b, existing)
+    const d = dataOf(b)
+    expect(['password', 'tempPassword', 'passwordHash'].filter((k) => k in d)).toEqual([])
+  })
+
+  it("the owner can still change an Administrator's email and role", async () => {
+    const b = body('u-adm2', 'update', { email: 'new@example.com', role: 'tenant' })
+    await enforceUserWritePolicy(full, b, existing)
+    expect(dataOf(b).email).toBe('new@example.com')
+  })
+
+  it('an Administrator can change their own email', async () => {
+    await expect(enforceUserWritePolicy(adm, body('u-adm', 'update', { email: 'me2@example.com' }), existing)).resolves.toBeUndefined()
+  })
+})

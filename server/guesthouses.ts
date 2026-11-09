@@ -910,6 +910,12 @@ export async function saveGuesthouse(actor: DemoActor, id: string | null, body: 
   if (status === 'published' && !id) throw err(400, 'Save the guest house and add a room before publishing')
   if (id) {
     const h = await ownedHouse(me, id)
+    // P4: only the owner publishes or unpublishes; draft <-> paused and a
+    // details edit of a published house stay open.
+    if ((h.status === 'published') !== (status === 'published')) {
+      const { actorIsOwner } = await import('./listingLiveStatus.js')
+      if (!(await actorIsOwner(actor.role, actor.userId))) throw err(403, 'Only a Lekaya Rentals admin can publish or unpublish a guest house')
+    }
     await query(
       `UPDATE guesthouses SET name=$2, description=$3, address=$4, suburb=$5, city=$6, latitude=$7, longitude=$8, photos=$9::jsonb,
          amenities=$10, house_rules=$11, check_in_time=$12, check_out_time=$13, cancellation_policy=$14, instant_book=$15,

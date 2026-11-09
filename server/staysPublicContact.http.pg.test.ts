@@ -19,6 +19,8 @@ const TEST_FIXTURE_PW = ['gh1', 'fixture', 'pw'].join('-')
 const B = 'b6010000-0000-4000-8000-00000000000b'
 const AG_B = 'gh1-ag-b'
 const ADMIN_B = { id: 'b6011000-0000-4000-8000-000000000001', fe: 'gh1-admin-b' }
+/** P4: only the owner publishes a guest house. */
+const OWNER = { id: 'b6011000-0000-4000-8000-000000000002', fe: 'gh1-owner' }
 const PHONE = '+27 82 000 0001'
 const EMAIL = 'host-b-private@example.test'
 type App = { request: (path: string, init?: RequestInit) => Promise<Response> }
@@ -34,7 +36,7 @@ describe.skipIf(!url)('GH-1: public /stays list hides host phone and email (real
   async function cleanup() {
     await q(`DELETE FROM guesthouses WHERE client_id = $1::uuid`, [B]).catch(() => undefined)
     await q(`DELETE FROM entity_id_map WHERE frontend_id LIKE 'gh1-%'`)
-    await q(`DELETE FROM users WHERE id = $1::uuid`, [ADMIN_B.id])
+    await q(`DELETE FROM users WHERE id = ANY($1::uuid[])`, [[ADMIN_B.id, OWNER.id]])
     await q(`DELETE FROM clients WHERE id = $1::uuid`, [B])
   }
   async function call(method: string, path: string, auth: string | null, body?: unknown) {
@@ -62,6 +64,12 @@ describe.skipIf(!url)('GH-1: public /stays list hides host phone and email (real
       [ADMIN_B.id, B, `${ADMIN_B.fe}@example.test`, await hashPassword(TEST_FIXTURE_PW)],
     )
     await q(`INSERT INTO entity_id_map (entity_type, frontend_id, backend_id) VALUES ('user', $1, $2::uuid)`, [ADMIN_B.fe, ADMIN_B.id])
+    await q(
+      `INSERT INTO users (id, client_id, email, password_hash, first_name, last_name, role, active, metadata)
+       VALUES ($1::uuid, NULL, $2, $3, 'GH1', 'Owner', 'SUPER_ADMIN', TRUE, '{"mustChangePassword": false}'::jsonb)`,
+      [OWNER.id, `${OWNER.fe}@example.test`, await hashPassword(TEST_FIXTURE_PW)],
+    )
+    await q(`INSERT INTO entity_id_map (entity_type, frontend_id, backend_id) VALUES ('user', $1, $2::uuid)`, [OWNER.fe, OWNER.id])
     app = (await import('./index.js')).default as unknown as App
     const login = await app.request('/api/auth/login', {
       method: 'POST',
@@ -70,11 +78,18 @@ describe.skipIf(!url)('GH-1: public /stays list hides host phone and email (real
     })
     expect(login.status).toBe(200)
     token = ((await login.json()) as { token: string }).token
+    const ownerLogin = await app.request('/api/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-forwarded-for': '10.81.0.2' },
+      body: JSON.stringify({ email: `${OWNER.fe}@example.test`, password: TEST_FIXTURE_PW }),
+    })
+    expect(ownerLogin.status).toBe(200)
+    const ownerToken = ((await ownerLogin.json()) as { token: string }).token
     const created = await call('POST', '/api/guesthouses', token, house)
     expect(created.status, created.text).toBe(200)
     pubId = created.json.id
     expect((await call('POST', `/api/guesthouses/${pubId}/rooms`, token, { name: 'Room 1', nightlyRate: 650 })).status).toBe(200)
-    expect((await call('PUT', `/api/guesthouses/${pubId}`, token, { ...house, status: 'published' })).status).toBe(200)
+    expect((await call('PUT', `/api/guesthouses/${pubId}`, ownerToken, { ...house, status: 'published' })).status).toBe(200)
     const draft = await call('POST', '/api/guesthouses', token, { ...house, name: 'GH1 Draft House' })
     expect(draft.status).toBe(200)
     draftId = draft.json.id

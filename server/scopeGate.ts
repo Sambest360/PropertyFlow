@@ -1021,6 +1021,20 @@ export async function enforceUserWritePolicy(
       if (existing && !own) {
         const target = await storedPlatformUser(body.id)
         if (target && isFullSuperAdmin(target)) throw deny('an administrator cannot change a super admin')
+        // ADM-4: a peer Administrator's sign-in email and role are the takeover
+        // vector (email -> forgot-password). Name, phone, active stay editable.
+        // The UI resends the whole row, so compare with the stored values.
+        if (target && target.role === 'super_admin' && target.platformTier === ADMINISTRATOR_TIER) {
+          if (typeof data.email === 'string' && data.email.trim() !== '') {
+            const stored = await storedUserEmail(body.id)
+            if (stored === null || stored !== data.email.trim().toLowerCase()) {
+              throw deny("an administrator cannot change another administrator's sign-in email")
+            }
+          }
+          if (role !== undefined && role !== 'super_admin') {
+            throw deny("an administrator cannot change another administrator's role")
+          }
+        }
       }
       if (own && existing) {
         stripFields(data, ['role', 'platformTier', 'agencyId', 'active', 'enabledPermissions'])

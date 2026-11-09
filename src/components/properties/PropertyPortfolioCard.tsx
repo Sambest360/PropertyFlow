@@ -17,7 +17,7 @@ import { formatZAR } from '../../data/seed'
 import { appendAgentMetaRow } from '../../lib/agentDisplay'
 import { useAgentDisplay, useHideAgentColumn } from '../../hooks/useAgentDisplay'
 import { resolvePortfolioStatus } from '../../lib/propertyStatus'
-import { canFeatureListing } from '../../lib/featuredRanking'
+import { canChangeListingLiveStatus } from '../../lib/listingLiveStatus'
 import { useStore } from '../../context/AppStore'
 import { useAuth, usePropertyScope } from '../../context/AuthContext'
 import {
@@ -55,11 +55,11 @@ function PropertyCardExpansion({
   const detailId = `/workspace/properties/${p.id}`
   const { viewerId } = useAgentDisplay()
   const { updateProperty } = useStore()
-  const { role, has } = useAuth()
+  const { user, has } = useAuth()
   const { canMutate } = usePropertyScope()
   // Featured lifts a live listing to the top of marketplace results in its area.
   const canFeature =
-    canFeatureListing(role) &&
+    canChangeListingLiveStatus(user) &&
     has('assets.manage') &&
     canMutate(p.id) &&
     !['Draft', 'Archived'].includes(p.status)

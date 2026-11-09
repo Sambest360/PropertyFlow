@@ -319,7 +319,7 @@ export type PropertyAsset = {
   /** Shared accommodation: rooms currently let (current leases on the property). */
   roomsLet?: number
   /** Going live needs a super admin's approval (server/listingApprovals.ts). */
-  liveApproval?: { status: 'pending' | 'approved' | 'declined'; requestedAt: string; reviewedAt?: string; note?: string }
+  liveApproval?: { status: 'pending' | 'approved' | 'declined' | 'withdrawn'; requestedAt: string; reviewedAt?: string; note?: string }
   advertiseWhileOccupied?: boolean
   availableFrom?: string | null
   listingMode: 'sale' | 'rent' | 'both'

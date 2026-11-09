@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { DemoActor } from './actor.js'
 import { isSaPublicHoliday, saBusinessDaysBetween } from './saPublicHolidays.js'
 import {
@@ -31,6 +31,9 @@ const TENANT = '00000000-0000-4000-8000-000000000105'
 const APPLICANT = '00000000-0000-4000-8000-000000000106'
 
 const agent: DemoActor = { role: 'agent_admin', userId: 'U-e2e-agent', agencyId: 'AG-e2e' } as DemoActor
+/** P4: switching the occupied advert is the owner's alone (actorIsOwner, mocked below). */
+const owner: DemoActor = { role: 'super_admin', userId: 'U-e2e-owner', agencyId: null } as DemoActor
+vi.mock('./listingLiveStatus.js', () => ({ actorIsOwner: async (role: string | null) => role === 'super_admin' }))
 const tenant: DemoActor = { role: 'tenant', userId: 'U-e2e-tenant', agencyId: null } as DemoActor
 
 type Call = { sql: string; params: unknown[] }
@@ -75,7 +78,7 @@ describe('available from', () => {
         () => [{ status: 'ACTIVE', end_date: '2027-01-31', notice_end_date: null, tenant_id: TENANT, settings: { turnoverDays: 1 } }],
       ],
     ])
-    const result = await patchAdvertiseWhileOccupied(agent, UNIT, { enabled: true }, deps)
+    const result = await patchAdvertiseWhileOccupied(owner, UNIT, { enabled: true }, deps)
     expect(result).toMatchObject({ advertiseWhileOccupied: true, availableFrom: '2027-02-01' })
     const update = deps.calls.find((c) => c.sql.startsWith('UPDATE units SET advertise_while_occupied = true'))
     expect(update?.params).toEqual([UNIT, '2027-02-01'])
@@ -87,15 +90,15 @@ describe('available from', () => {
     const deps = fakeDeps([
       ['FROM units u\n       JOIN clients c', () => [{ status: 'ACTIVE', end_date: null, notice_end_date: null, settings: {} }]],
     ])
-    await expect(patchAdvertiseWhileOccupied(agent, UNIT, { enabled: true }, deps)).rejects.toMatchObject({
+    await expect(patchAdvertiseWhileOccupied(owner, UNIT, { enabled: true }, deps)).rejects.toMatchObject({
       status: 400,
       code: AVAILABLE_FROM_REQUIRED,
     })
     await expect(
-      patchAdvertiseWhileOccupied(agent, UNIT, { enabled: true, expectedAvailableFrom: '2027-03-01' }, deps),
+      patchAdvertiseWhileOccupied(owner, UNIT, { enabled: true, expectedAvailableFrom: '2027-03-01' }, deps),
     ).rejects.toMatchObject({ code: AVAILABLE_FROM_REQUIRED })
     const ok = await patchAdvertiseWhileOccupied(
-      agent,
+      owner,
       UNIT,
       { enabled: true, expectedAvailableFrom: '2027-03-01', reason: 'E2E TEST tenant relocating' },
       deps,
@@ -106,6 +109,13 @@ describe('available from', () => {
   it('an agent without listings.publish cannot advertise', async () => {
     const deps = fakeDeps([], { canPublish: async () => false })
     await expect(patchAdvertiseWhileOccupied(agent, UNIT, { enabled: true }, deps)).rejects.toMatchObject({ status: 403 })
+  })
+
+  it('P4: an agent WITH listings.publish still cannot switch the advert on or off', async () => {
+    const deps = fakeDeps([], { canPublish: async () => true })
+    await expect(patchAdvertiseWhileOccupied(agent, UNIT, { enabled: true }, deps)).rejects.toMatchObject({ status: 403 })
+    await expect(patchAdvertiseWhileOccupied(agent, UNIT, { enabled: false }, deps)).rejects.toMatchObject({ status: 403 })
+    expect(deps.calls.some((c) => c.sql.startsWith('UPDATE units'))).toBe(false)
   })
 })
 

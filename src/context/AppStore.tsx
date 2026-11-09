@@ -178,6 +178,7 @@ import {
 } from '../lib/blockedApplicants'
 import { roomsToInfraRooms } from '../lib/infraRoomsFromBootstrap'
 import { defaultRoomLayout } from '../lib/roomLayout'
+import { canChangeListingLiveStatus } from '../lib/listingLiveStatus'
 import type { PostgresBootstrap } from '../lib/api/postgresClient'
 import { isApiEnabled } from '../lib/api/config'
 import { ensureLeaseEnvelopeForSign, leaseSignatureSaved } from '../lib/leaseSignatureOrdering'
@@ -4101,8 +4102,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       if (
         prev &&
         PUBLIC_ON.includes(status) &&
-        getApiActor()?.role !== 'super_admin' &&
-        prev.liveApproval?.status !== 'approved' &&
+        !canChangeListingLiveStatus(stateRef.current.users.find((u) => u.id === getApiActor()?.userId)) &&
         !PUBLIC_ON.includes(prev.status)
       ) {
         const liveApproval = { status: 'pending' as const, requestedAt: new Date().toISOString() }

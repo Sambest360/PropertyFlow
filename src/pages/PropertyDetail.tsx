@@ -47,7 +47,7 @@ import {
 } from '../lib/propertyDeletion'
 import { sweetConfirm, sweetSuccess, sweetTitleTypeConfirm, sweetWarning } from '../lib/sweetAlert'
 import { publishRequestMessage, requestListingPublish } from '../lib/publishRequest'
-import { canFeatureListing } from '../lib/featuredRanking'
+import { canChangeListingLiveStatus, listingIsLiveNow, withdrawListingApi } from '../lib/listingLiveStatus'
 
 export default function PropertyDetail() {
   const { id } = useParams()
@@ -80,6 +80,7 @@ export default function PropertyDetail() {
     addPropertyEvent,
     addPropertyDocument,
     notify,
+    refreshSessionData,
   } = useStore()
   const { has, user, agencyId } = useAuth()
   const { inPropertyScope } = usePropertyScope()
@@ -211,8 +212,13 @@ export default function PropertyDetail() {
   )
 
   const canManage = has('assets.manage')
+  // P4: only the owner changes whether a listing is live (server/listingLiveStatus.ts).
+  const isOwner = canChangeListingLiveStatus(user)
+  const liveNow = p
+    ? listingIsLiveNow({ statusKey: unit?.statusKey, listingType: unit?.listingType, advertiseWhileOccupied: p.advertiseWhileOccupied, availableFrom: p.availableFrom })
+    : false
   const canAdminDelete = p
-    ? canDeleteStoredProperty({ role: user.role, userId: user.id, agencyId }, p)
+    ? canDeleteStoredProperty({ role: user.role, userId: user.id, agencyId }, p) && (isOwner || !liveNow)
     : false
   const deleteBlockedReason = p
     ? getPropertyDeleteBlockReason(p, state.tenancies, state.applications)
@@ -342,7 +348,7 @@ export default function PropertyDetail() {
         )
         return
       }
-      if (user.role !== 'super_admin' && p.liveApproval?.status !== 'approved') {
+      if (!isOwner) {
         await sweetSuccess(
           'Waiting for approval',
           'Your property is pending verification. A Lekaya Rentals admin will review it and either approve it (it then goes live) or tell you what to fix.',
@@ -430,18 +436,36 @@ export default function PropertyDetail() {
     }
   }
 
+  async function handleTakeDown() {
+    if (!p) return
+    const note = window.prompt('Take this listing down? Add a reason for the agency (optional).', '')
+    if (note === null) return
+    try {
+      await withdrawListingApi(p.id, note)
+      await refreshSessionData()
+      await sweetSuccess('Listing taken down', 'It is hidden from the public site. The agency has been told.')
+    } catch (e) {
+      await sweetWarning('Could not take it down', e instanceof Error ? e.message : String(e))
+    }
+  }
+
   return (
     <div className="animate-fade-in">
       {p.liveApproval && p.liveApproval.status !== 'approved' && p.status === 'Draft' ? (
         <div
           role="status"
           className={
-            p.liveApproval.status === 'declined'
+            p.liveApproval.status === 'declined' || p.liveApproval.status === 'withdrawn'
               ? 'mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900'
               : 'mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900'
           }
         >
-          {p.liveApproval.status === 'declined' ? (
+          {p.liveApproval.status === 'withdrawn' ? (
+            <>
+              <span className="font-semibold">Taken down by a Lekaya Rentals admin.</span>{' '}
+              {p.liveApproval.note ? `Reason: ${p.liveApproval.note}. ` : ''}Publish again to send it for review.
+            </>
+          ) : p.liveApproval.status === 'declined' ? (
             <>
               <span className="font-semibold">Not approved to go live.</span> {p.liveApproval.note ? `Reason: ${p.liveApproval.note}. ` : ''}Fix it and publish again to resend it for approval.
             </>
@@ -474,11 +498,12 @@ export default function PropertyDetail() {
         deleteBusy={deleteBusy}
         restoreBusy={restoreBusy}
         onToggleFeatured={() => updateProperty(p.id, { featured: !p.featured })}
-        canFeature={canManage && canFeatureListing(user.role)}
+        canFeature={canManage && isOwner}
+        onTakeDown={isOwner && liveNow ? () => void handleTakeDown() : undefined}
         guestMarketplaceBlock={guestMarketplaceBlock}
       />
 
-      {canManage && (p.status === 'Rented' || p.advertiseWhileOccupied) && (
+      {canManage && isOwner && (p.status === 'Rented' || p.advertiseWhileOccupied) && (
         <OccupiedAdvertCard
           property={p}
           tenancy={

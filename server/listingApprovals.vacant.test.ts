@@ -15,7 +15,7 @@ vi.mock('./db.js', () => ({
 vi.mock('./entityMap.js', () => ({ resolveUuid: vi.fn(async () => null) }))
 vi.mock('./requestActor.js', () => ({ resolveRequestActor: vi.fn(async () => null) }))
 
-const base = { unitUuid: '0e000000-0000-4000-8000-000000000001', storedStatus: 'DRAFT', actorUserId: null }
+const base = { unitUuid: '0e000000-0000-4000-8000-000000000001', storedStatus: 'DRAFT', actorUserId: null, actorIsOwner: false }
 const pendingInsert = () => sqls.some((s) => /INSERT INTO listing_approvals/.test(s) && /'pending'/.test(s))
 const approvedUpsert = () => sqls.some((s) => /INSERT INTO listing_approvals/.test(s) && /'approved'/.test(s))
 const approvalLookup = () => sqls.some((s) => /listing_approvals/.test(s))
@@ -42,13 +42,13 @@ describe('gateListingLive: VACANT is a public status (MKT-2)', () => {
   })
   it('c. super admin VACANT save -> VACANT with the approved upsert', async () => {
     const { gateListingLive } = await import('./listingApprovals.js')
-    const out = await gateListingLive({ ...base, statusKey: 'VACANT', actorRole: 'super_admin' })
+    const out = await gateListingLive({ ...base, statusKey: 'VACANT', actorRole: 'super_admin', actorIsOwner: true })
     expect({ out, approved: approvedUpsert() }).toEqual({ out: 'VACANT', approved: true })
   })
-  it('d. already approved + agency VACANT save -> VACANT', async () => {
+  it('d. already approved + agency VACANT save on a DRAFT -> DRAFT and pending again (P4: approved once is not approved forever)', async () => {
     approval.row = { status: 'approved' }
     const { gateListingLive } = await import('./listingApprovals.js')
-    expect(await gateListingLive({ ...base, statusKey: 'VACANT', actorRole: 'agent_admin' })).toBe('VACANT')
+    expect(await gateListingLive({ ...base, statusKey: 'VACANT', actorRole: 'agent_admin' })).toBe('DRAFT')
   })
   it('e. OCCUPIED / DRAFT pass through with no approval query', async () => {
     const { gateListingLive } = await import('./listingApprovals.js')
@@ -67,5 +67,13 @@ describe('one public-status set', () => {
     const server = await import('./publicUnitStatus.js')
     const client = await import('../src/lib/publicListings.js')
     expect([...server.PUBLIC_UNIT_STATUS_KEYS].sort()).toEqual([...client.PUBLIC_UNIT_STATUS_KEYS].sort())
+  })
+})
+
+describe('status keys are trimmed and upper-cased (C2)', () => {
+  it('a. normalizeStatusKey', async () => {
+    const mod = (await import('./publicUnitStatus.js')) as { normalizeStatusKey?: (v: unknown) => string }
+    expect(typeof mod.normalizeStatusKey, 'normalizeStatusKey exported').toBe('function')
+    expect([' VACANT', 'vacant ', ' Published ', '   ', null, 42].map((v) => mod.normalizeStatusKey!(v))).toEqual(['VACANT', 'VACANT', 'PUBLISHED', '', '', ''])
   })
 })

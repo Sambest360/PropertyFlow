@@ -1,4 +1,5 @@
 import { canDeletePropertyByRule } from '../src/lib/propertyDeletion.js'
+import { actorIsOwner } from './listingLiveStatus.js'
 import { canSeeAgency, type PropertyAccessSubject } from '../src/lib/agencyScope.js'
 import { isAgencyWideRole } from '../src/lib/scope.js'
 import type { Role } from '../src/types/domain.js'
@@ -76,7 +77,7 @@ export async function assertHardPropertyDeleteAllowed(
   resource: string,
   feId: string,
 ): Promise<void> {
-  if (actor.role !== 'super_admin') {
+  if (!(await actorIsOwner(actor.role, actor.userId))) {
     throw policyError('Use archive from the property screen.', 403, 'PROPERTY_HARD_DELETE_FORBIDDEN')
   }
   if (resource === 'building') {

@@ -22,7 +22,13 @@ const AG_A = 'ghr-ag-a'
 const USERS = {
   adminA: { id: 'a7031000-0000-4000-8000-000000000001', fe: 'ghr-admin-a', role: 'AGENT_ADMIN' },
   groundA: { id: 'a7031000-0000-4000-8000-000000000002', fe: 'ghr-ground-a', role: 'GROUND_AGENT' },
+  /** Candidate / Intern Agent: an 'agent' session (END_USER + metadata.frontend_role 'agent'). */
+  candidateA: { id: 'a7031000-0000-4000-8000-000000000003', fe: 'ghr-candidate-a', role: 'END_USER' },
+  /** P4: only the owner publishes a guest house (no agency, platform staff). */
+  owner: { id: 'a7031000-0000-4000-8000-000000000004', fe: 'ghr-owner', role: 'SUPER_ADMIN' },
 } as const
+/** Extra metadata per user; the others keep exactly {"mustChangePassword": false}. */
+const EXTRA_META: Partial<Record<keyof typeof USERS, Record<string, unknown>>> = { candidateA: { frontend_role: 'agent' } }
 type UserKey = keyof typeof USERS
 type App = { request: (path: string, init?: RequestInit) => Promise<Response> }
 
@@ -57,7 +63,7 @@ describe.skipIf(!url)('guest houses: payment and delete are admin-only (real app
     const h = await call('POST', '/api/guesthouses', 'adminA', { name, city: 'Gqeberha' })
     expect(h.status).toBe(200)
     const r = await call('POST', `/api/guesthouses/${h.json.id}/rooms`, 'adminA', { name: 'Room', nightlyRate: 600 })
-    expect((await call('PUT', `/api/guesthouses/${h.json.id}`, 'adminA', { name, city: 'Gqeberha', status: 'published' })).status).toBe(200)
+    expect((await call('PUT', `/api/guesthouses/${h.json.id}`, 'owner', { name, city: 'Gqeberha', status: 'published' })).status).toBe(200)
     return { houseId: h.json.id, roomId: r.json.id }
   }
   async function book(days: number): Promise<string> {
@@ -75,17 +81,17 @@ describe.skipIf(!url)('guest houses: payment and delete are admin-only (real app
     await q(`INSERT INTO entity_id_map (entity_type, frontend_id, backend_id) VALUES ('agency', $1, $2::uuid)`, [AG_A, A])
     const { hashPassword } = await import('./auth.js')
     const hash = await hashPassword(TEST_FIXTURE_PW)
-    for (const u of Object.values(USERS)) {
+    for (const [k, u] of Object.entries(USERS) as Array<[keyof typeof USERS, (typeof USERS)[keyof typeof USERS]]>) {
       await q(
         `INSERT INTO users (id, client_id, email, password_hash, first_name, last_name, role, active, metadata)
-         VALUES ($1::uuid, $2::uuid, $3, $4, 'GHR', 'Test', $5, TRUE, '{"mustChangePassword": false}'::jsonb)`,
-        [u.id, A, `${u.fe}@example.test`, hash, u.role],
+         VALUES ($1::uuid, $2::uuid, $3, $4, 'GHR', 'Test', $5, TRUE, $6::jsonb)`,
+        [u.id, k === 'owner' ? null : A, `${u.fe}@example.test`, hash, u.role, JSON.stringify({ mustChangePassword: false, ...(EXTRA_META[k] ?? {}) })],
       )
       await q(`INSERT INTO entity_id_map (entity_type, frontend_id, backend_id) VALUES ('user', $1, $2::uuid)`, [u.fe, u.id])
     }
     app = (await import('./index.js')).default as unknown as App
     let i = 1
-    for (const k of ['adminA', 'groundA'] as const) {
+    for (const k of ['adminA', 'groundA', 'candidateA', 'owner'] as const) {
       const res = await app.request('/api/auth/login', {
         method: 'POST',
         headers: { 'content-type': 'application/json', 'x-forwarded-for': `10.82.0.${i++}` },
@@ -105,12 +111,33 @@ describe.skipIf(!url)('guest houses: payment and delete are admin-only (real app
     if (db) await cleanup()
   })
 
+  const houseExists = async (id: string) => (await q<{ n: number }>(`SELECT COUNT(*)::int AS n FROM guesthouses WHERE id = $1::uuid`, [id]))[0].n === 1
+  const paymentOf = async (id: string) => (await q<{ p: string }>(`SELECT payment_status AS p FROM guesthouse_bookings WHERE id = $1::uuid`, [id]))[0]?.p
+
   it('a ground agent cannot delete a guest house or mark a booking paid', async () => {
     const spare = await newHouse('GHR Spare')
     const bookingId = await book(10)
     const del = await call('DELETE', `/api/guesthouses/${spare.houseId}`, 'groundA')
     const pay = await call('POST', `/api/guesthouses/bookings/${bookingId}`, 'groundA', { action: 'payment', paymentStatus: 'paid' })
-    expect({ del: del.status, pay: pay.status }).toEqual({ del: 403, pay: 403 })
+    expect({ del: del.status, pay: pay.status, house: await houseExists(spare.houseId), payment: await paymentOf(bookingId) }).toEqual({
+      del: 403, pay: 403, house: true, payment: 'unpaid',
+    })
+  })
+
+  it('a Candidate (agent) cannot delete a guest house or mark a booking paid', async () => {
+    const spare = await newHouse('GHR Spare C')
+    const bookingId = await book(22)
+    const del = await call('DELETE', `/api/guesthouses/${spare.houseId}`, 'candidateA')
+    const pay = await call('POST', `/api/guesthouses/bookings/${bookingId}`, 'candidateA', { action: 'payment', paymentStatus: 'paid' })
+    expect({ del: del.status, pay: pay.status, house: await houseExists(spare.houseId), payment: await paymentOf(bookingId) }).toEqual({
+      del: 403, pay: 403, house: true, payment: 'unpaid',
+    })
+  })
+
+  it('a Candidate (agent) can still confirm a booking', async () => {
+    const bookingId = await book(26)
+    const ok = await call('POST', `/api/guesthouses/bookings/${bookingId}`, 'candidateA', { action: 'confirm' })
+    expect({ status: ok.status, booking: ok.json?.status }).toEqual({ status: 200, booking: 'confirmed' })
   })
 
   it('the agency admin can do both', async () => {

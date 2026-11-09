@@ -6,6 +6,7 @@ import { query } from './db.js'
 import { isUuid, resolveUuid, type EntityType } from './entityMap.js'
 import { forbiddenError, type DemoActor } from './actor.js'
 import { addSaBusinessDays, isoAddDays } from './saPublicHolidays.js'
+import { actorIsOwner } from './listingLiveStatus.js'
 import {
   MIN_OCCUPIED_VIEWING_NOTICE_HOURS,
   POPIA_PHOTO_WARNING,
@@ -379,8 +380,10 @@ export async function patchAdvertiseWhileOccupied(
   const unitId = await resolveUnitUuid(unitRef, deps)
   if (!unitId) throw coded(404, 'NOT_FOUND', 'Unit not found')
   const access = await deps.assertUnitManageable(actor, unitId)
-  if (actor.role !== 'super_admin' && actor.role !== 'landlord' && !(await deps.canPublish(actor))) {
-    throw forbiddenError(`Forbidden: ${actor.role} ${actor.userId} cannot advertise this unit (missing listings.publish)`)
+  // P4: switching the occupied advert on or off changes whether the listing
+  // is live, so it is the owner's alone (landlords and listings.publish no longer suffice).
+  if (!(await actorIsOwner(actor.role, actor.userId))) {
+    throw forbiddenError(`Forbidden: ${actor.role} ${actor.userId} cannot advertise this unit (only the owner can make a listing live or take it down)`)
   }
   if (!body.enabled) {
     await clearOccupiedAdvert(unitId, actor, 'turned off', deps)

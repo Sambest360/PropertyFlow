@@ -23,6 +23,8 @@ const AG_A = 'gh2-ag-a'
 const USERS = {
   adminA: { id: 'a6021000-0000-4000-8000-000000000001', fe: 'gh2-admin-a', client: A as string | null, role: 'AGENT_ADMIN' },
   tenant: { id: 'a6021000-0000-4000-8000-000000000002', fe: 'gh2-tenant', client: null as string | null, role: 'END_USER' },
+  /** P4: only the owner publishes a guest house. */
+  owner: { id: 'a6021000-0000-4000-8000-000000000003', fe: 'gh2-owner', client: null as string | null, role: 'SUPER_ADMIN' },
 } as const
 type UserKey = keyof typeof USERS
 const VICTIM = 'victim-guest@example.test'
@@ -93,12 +95,13 @@ describe.skipIf(!url)('GH-2: my bookings only by account, never by matching emai
     app = (await import('./index.js')).default as unknown as App
     tokens.adminA = await login('adminA', 1)
     tokens.tenant = await login('tenant', 2)
+    tokens.owner = await login('owner', 3)
     const house = await call('POST', '/api/guesthouses', tokens.adminA!, { name: 'GH2 Seaview', city: 'Gqeberha' })
     expect(house.status, JSON.stringify(house.json)).toBe(200)
     const room = await call('POST', `/api/guesthouses/${house.json.id}/rooms`, tokens.adminA!, { name: 'Garden Room', nightlyRate: 700, maxGuests: 2 })
     expect(room.status).toBe(200)
     roomId = room.json.id
-    const pub = await call('PUT', `/api/guesthouses/${house.json.id}`, tokens.adminA!, { name: 'GH2 Seaview', city: 'Gqeberha', status: 'published' })
+    const pub = await call('PUT', `/api/guesthouses/${house.json.id}`, tokens.owner!, { name: 'GH2 Seaview', city: 'Gqeberha', status: 'published' })
     expect(pub.status).toBe(200)
   })
   beforeEach(() => {

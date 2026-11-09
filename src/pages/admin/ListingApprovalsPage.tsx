@@ -11,10 +11,12 @@ import { Badge, Button, Card, PageHeader, Select, Textarea } from '../../compone
 import { sweetSuccess, sweetWarning } from '../../lib/sweetAlert'
 import { relativeAge } from '../../lib/relativeTime'
 import { Pager, usePaged } from '../../components/Pager'
+import { useAuth } from '../../context/AuthContext'
+import { canChangeListingLiveStatus } from '../../lib/listingLiveStatus'
 
 type Item = {
   unitId: string
-  status: 'pending' | 'approved' | 'declined'
+  status: 'pending' | 'approved' | 'declined' | 'withdrawn'
   requestedAt: string
   reviewedAt: string | null
   note: string | null
@@ -49,6 +51,9 @@ function firstImage(images: unknown): string | null {
 }
 
 export default function ListingApprovalsPage() {
+  // P4: only the owner approves or declines; Administrators see the queue read-only.
+  const { user } = useAuth()
+  const isOwner = canChangeListingLiveStatus(user)
   const [status, setStatus] = useState<'pending' | 'approved' | 'declined' | 'all'>('pending')
   const [items, setItems] = useState<Item[] | null>(null)
   const [error, setError] = useState('')
@@ -116,7 +121,7 @@ export default function ListingApprovalsPage() {
                     {it.rent ? ` · R ${Number(it.rent).toLocaleString('en-ZA')} /month` : it.price ? ` · R ${Number(it.price).toLocaleString('en-ZA')}` : ''}
                   </p>
                   {it.note ? <p className="text-xs text-ink-600">Note: {it.note}</p> : null}
-                  {it.status !== 'approved' ? (
+                  {isOwner && it.status !== 'approved' && it.status !== 'withdrawn' ? (
                     declining === it.unitId ? (
                       <div className="space-y-2 pt-2">
                         <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why it can't go live yet (the agency sees this)" />

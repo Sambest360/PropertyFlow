@@ -127,57 +127,67 @@ describe('upsertProperty archive', () => {
   })
 })
 
-describe('upsertProperty featured (free toggle, agency staff only)', () => {
+describe('upsertProperty featured (owner only, P4)', () => {
+  const OWNER_UUID = '00000000-0000-4000-8000-0000000000f1'
   beforeEach(() => {
     query.mockReset()
     resolveUuid.mockReset()
     ensureUuid.mockReset()
-    resolveUuid.mockImplementation(async (et: string) => (et === 'agency' ? AGENCY_UUID : et === 'building' ? BUILDING_UUID : null))
+    resolveUuid.mockImplementation(async (et: string) =>
+      et === 'agency' ? AGENCY_UUID : et === 'building' ? BUILDING_UUID : et === 'user' ? OWNER_UUID : null,
+    )
     ensureUuid.mockImplementation(async (et: string, _fe: string, preferred?: string) => preferred ?? (et === 'building' ? BUILDING_UUID : UNIT_UUID))
   })
   afterEach(() => vi.resetModules())
 
-  async function saveFeatured(storedFeatured: boolean, sent: boolean, role: string | null) {
+  /** The featured value the INSERT writes, or the refusal. `ownerRow` makes u-1 the full super admin. */
+  async function saveFeatured(storedFeatured: boolean, sent: boolean, role: string | null, ownerRow = false) {
     query.mockClear()
     query.mockImplementation(async (sql: string) =>
       sql.includes('SELECT status_config_key, listing_type, agent_id, featured FROM units')
         ? [{ status_config_key: 'PUBLISHED', listing_type: 'rent', agent_id: STORED_AGENT_UUID, featured: storedFeatured }]
-        : [],
+        : sql.includes('SELECT role, metadata FROM users')
+          ? ownerRow
+            ? [{ role: 'SUPER_ADMIN', metadata: {} }]
+            : []
+          : [],
     )
     const { handlePersist } = await import('./writes.js')
-    await handlePersist(
-      {
-        resource: 'property',
-        action: 'upsert',
-        id: 'unt-feature',
-        data: { agencyId: 'ag-fixture', buildingId: 'bld-fixture', title: 'Flat', statusKey: 'PUBLISHED', rent: 9000, featured: sent },
-      },
-      'u-1',
-      role,
-    )
+    try {
+      await handlePersist(
+        {
+          resource: 'property',
+          action: 'upsert',
+          id: 'unt-feature',
+          data: { agencyId: 'ag-fixture', buildingId: 'bld-fixture', title: 'Flat', statusKey: 'PUBLISHED', rent: 9000, featured: sent },
+        },
+        'u-1',
+        role,
+      )
+    } catch (e) {
+      return (e as { code?: string }).code ?? 'error'
+    }
     const insert = query.mock.calls.find((c) => String(c[0]).includes('INSERT INTO units'))!
     return (insert[1] as unknown[])[18]
   }
 
-  it('agency staff can feature and unfeature a listing', async () => {
-    expect(await saveFeatured(false, true, 'agent_admin')).toBe(true)
+  it('agency staff cannot turn Featured on (a new listing starts off; the change is refused before any write)', async () => {
+    expect(await saveFeatured(false, true, 'agent_admin')).toBe('LISTING_LIVE_OWNER_ONLY')
     vi.resetModules()
-    expect(await saveFeatured(true, false, 'client_admin')).toBe(false)
-    vi.resetModules()
-    expect(await saveFeatured(false, true, 'agent')).toBe(true)
+    expect(await saveFeatured(false, true, 'agent')).toBe('LISTING_LIVE_OWNER_ONLY')
   })
 
-  it('a super admin can', async () => {
-    expect(await saveFeatured(false, true, 'super_admin')).toBe(true)
+  it('the owner can', async () => {
+    expect(await saveFeatured(false, true, 'super_admin', true)).toBe(true)
     vi.resetModules()
-    expect(await saveFeatured(true, false, 'super_admin')).toBe(false)
+    expect(await saveFeatured(true, false, 'super_admin', true)).toBe(false)
   })
 
-  it('a landlord or tenant save keeps the stored value', async () => {
-    expect(await saveFeatured(false, true, 'landlord')).toBe(false)
+  it("a non-owner's save keeps the stored value", async () => {
+    expect(await saveFeatured(true, false, 'client_admin')).toBe(true)
     vi.resetModules()
     expect(await saveFeatured(true, false, 'landlord')).toBe(true)
     vi.resetModules()
-    expect(await saveFeatured(false, true, 'tenant')).toBe(false)
+    expect(await saveFeatured(false, false, 'tenant')).toBe(false)
   })
 })

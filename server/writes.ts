@@ -54,13 +54,14 @@ import {
 import { titleTypeWarning } from '../src/lib/listingSizes.js'
 import { clampRoomLayoutValue } from '../src/lib/roomLayout.js'
 import { checkViolationFromDbError } from './dbConstraintError.js'
+import { normalizeStatusKey } from './publicUnitStatus.js'
+import { actorIsOwner, liveChangeRefusal, type LiveRow } from './listingLiveStatus.js'
 import { sanitizePipeline } from '../src/lib/pipeline/applicationPipeline.js'
 import { sanitizeLeaseHtml } from '../src/lib/lease/leaseTemplate.js'
 import { notifyWaitlistSpotOpen } from './listingLimits.js'
 import { mapAgencyStatusToDb } from '../src/lib/agencyStatus.js'
 import { resolveLiveListing } from './listingResolve.js'
 import { canonicalListingId } from '../src/lib/listingIds.js'
-import { canFeatureListing } from '../src/lib/featuredRanking.js'
 import { ensureListingUnitUuid, resolveListingUnitUuid } from './listingUuid.js'
 import { isValidSignatureDataUrl, signatureInvalidError } from '../src/lib/signature/signatureImage.js'
 import {
@@ -236,6 +237,27 @@ function listingType(mode: unknown): string {
   if (m === 'both') return 'BOTH'
   if (m === 'not_listed') return 'NOT_LISTED'
   return 'RENT'
+}
+
+/**
+ * Archive / restore flags and the unit status key a property save asks for.
+ * Used by the owner-only live check (before any write) and by the write itself.
+ */
+function requestedListingStatus(
+  d: Record<string, unknown>,
+  storedStatus: string,
+): { isRestore: boolean; isArchive: boolean; requestedStatusKey: string } {
+  const isRestore = d.restore === true
+  const isArchive =
+    !isRestore &&
+    storedStatus !== 'DELETED' &&
+    (d.deletedAt != null || String(d.statusKey ?? '').toUpperCase() === 'DELETED')
+  const requestedStatusKey = isArchive
+    ? 'DELETED'
+    : isRestore
+      ? normalizeStatusKey(d.statusKey) || unitStatusFromProperty(d.status, undefined)
+      : normalizeStatusKey(d.statusKey) || unitStatusFromProperty(d.status, d.deletedAt)
+  return { isRestore, isArchive, requestedStatusKey }
 }
 
 function unitStatusFromProperty(status: unknown, deletedAt?: unknown): string {
@@ -1120,6 +1142,43 @@ async function upsertProperty(
   assertUnitErfSize(d)
   assertUnitFloorSize(d)
   if (d.erfSizeSqm !== undefined) await ensureUnitErfSizeColumn()
+  // P4: only the owner changes a listing's live state (live / taken down /
+  // featured / Under Offer). Checked before any write, so a refusal changes nothing.
+  const isOwner = actorRole !== null && (await actorIsOwner(actorRole, actorUserId))
+  if (actorRole !== null) {
+    const preUnit = await resolveListingUnitUuid(feId)
+    const pre = preUnit
+      ? (
+          await query<{ status_config_key: string; listing_type: string | null; featured: boolean | null; advertise_while_occupied: boolean | null; available_from: string | null }>(
+            `SELECT status_config_key, listing_type, featured, advertise_while_occupied, available_from::text AS available_from FROM units WHERE id = $1::uuid`,
+            [preUnit],
+          )
+        )[0]
+      : undefined
+    const preStored = (pre?.status_config_key ?? '').toUpperCase()
+    const preReq = requestedListingStatus(d, preStored)
+    if (!(preStored === 'DELETED' && !preReq.isRestore)) {
+      const stored: LiveRow | null = pre
+        ? {
+            statusKey: pre.status_config_key,
+            listingType: pre.listing_type,
+            featured: Boolean(pre.featured),
+            advertiseWhileOccupied: Boolean(pre.advertise_while_occupied),
+            availableFrom: pre.available_from,
+          }
+        : null
+      const refusal = liveChangeRefusal({
+        isOwner,
+        stored,
+        requested: {
+          statusKey: preReq.requestedStatusKey,
+          listingType: preReq.isArchive && stored ? stored.listingType : listingType(d.listingMode ?? d.listingType),
+          featured: typeof d.featured === 'boolean' ? d.featured : undefined,
+        },
+      })
+      if (refusal) throw Object.assign(new Error(refusal), { status: 403, code: 'LISTING_LIVE_OWNER_ONLY' })
+    }
+  }
   // Only agency staff may set the per-unit viewing-gate override. Checked
   // before any write (id map included) so a refused write changes nothing.
   const viewingRule = await authorizedRequireViewingColumn(actorRole, d, await resolveListingUnitUuid(feId))
@@ -1204,11 +1263,7 @@ async function upsertProperty(
   }>(`SELECT status_config_key, listing_type, agent_id, featured FROM units WHERE id = $1::uuid`, [uuid])
   const existingUnit = existingRows[0]
   const storedStatus = (existingUnit?.status_config_key ?? '').toUpperCase()
-  const isRestore = d.restore === true
-  const isArchive =
-    !isRestore &&
-    storedStatus !== 'DELETED' &&
-    (d.deletedAt != null || String(d.statusKey ?? '').toUpperCase() === 'DELETED')
+  const { isRestore, isArchive, requestedStatusKey } = requestedListingStatus(d, storedStatus)
 
   if (storedStatus === 'DELETED' && !isRestore) {
     return uuid
@@ -1241,12 +1296,6 @@ async function upsertProperty(
     typeof d.idempotencyKey === 'string' && d.idempotencyKey.trim()
       ? d.idempotencyKey.trim()
       : null
-  const requestedStatusKey = isArchive
-    ? 'DELETED'
-    : isRestore
-      ? str(d.statusKey) || unitStatusFromProperty(d.status, undefined)
-      : str(d.statusKey) || unitStatusFromProperty(d.status, d.deletedAt)
-
   let pendingTitleTypeConfirm: { title: string; type: string; warning: string } | null = null
   // F1/F2: evaluate confirm against the *requested* public status BEFORE
   // gateListingLive, so a missing flag 409s without queuing an unapprovable
@@ -1297,7 +1346,7 @@ async function upsertProperty(
     }
   }
 
-  // Only a super admin makes a listing live; anyone else's publish waits for approval.
+  // Only the owner makes a listing live; anyone else's publish waits for approval.
   const statusKey =
     actorRole === null
       ? requestedStatusKey
@@ -1307,6 +1356,7 @@ async function upsertProperty(
           storedStatus,
           actorRole,
           actorUserId,
+          actorIsOwner: isOwner,
         })
 
   const writeUnitRow = async () => {
@@ -1373,12 +1423,11 @@ async function upsertProperty(
       str(d.description),
       JSON.stringify(Array.isArray(d.amenities) ? d.amenities : []),
       JSON.stringify(Array.isArray(d.images) ? d.images : []),
-      // Featured (free toggle): agency staff set it on listings they may
-      // write (the scope gate checks the agency); anyone else's save keeps the
-      // stored value (new listings start off).
+      // Featured: only the owner sets it; anyone else's save keeps the stored
+      // value (new listings start off). Archive clears it.
       isArchive
         ? false
-        : canFeatureListing(actorRole)
+        : isOwner
           ? bool(d.featured) || str(d.status) === 'Featured'
           : Boolean(existingUnit?.featured),
       num(d.lat),

@@ -39,7 +39,7 @@ import { PlacesAddressInput } from '../../components/PlacesAddressInput'
 import { LocationMapPreview } from '../../components/maps/LocationMapPreview'
 import { geocodeAddress, reverseGeocode } from '../../lib/api/geocoding'
 import { canSetUnitViewingOverride } from '../../lib/applyEligibility'
-import { canFeatureListing } from '../../lib/featuredRanking'
+import { canChangeListingLiveStatus } from '../../lib/listingLiveStatus'
 import { Button, Input, Select } from '../../components/ui'
 import { FormLabel, FieldHelp } from '../../components/onboarding/FieldHelp'
 import { uid } from '../../data/seed'
@@ -277,7 +277,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
 
   // Featured: agency staff lift a published listing to the top of marketplace
   // results in its area. Edit only — a new listing starts as a draft.
-  const canFeature = isEdit && canFeatureListing(role)
+  const canFeature = isEdit && canChangeListingLiveStatus(user)
   const [featured, setFeatured] = useState(Boolean(editProperty?.featured))
 
   const seedDraft =
@@ -1168,8 +1168,7 @@ export function PropertyWizardPage({ editPropertyId }: { editPropertyId?: string
     const before = state.properties.find((p) => p.id === propertyId)
     const heldForApproval =
       shouldPublish &&
-      user.role !== 'super_admin' &&
-      before?.liveApproval?.status !== 'approved' &&
+      !canChangeListingLiveStatus(user) &&
       !['Published', 'Featured', 'Under Offer'].includes(before?.status ?? 'Draft')
     if (heldForApproval) {
       await sweetSuccess(

@@ -13,3 +13,8 @@ export const PUBLIC_UNIT_STATUS_KEYS: ReadonlySet<string> = new Set([
   'UNDER_OFFER',
   'AVAILABLE',
 ])
+
+/** A client-sent unit status key, trimmed and upper-cased ('' for anything that isn't a string). */
+export function normalizeStatusKey(v: unknown): string {
+  return typeof v === 'string' ? v.trim().toUpperCase() : ''
+}

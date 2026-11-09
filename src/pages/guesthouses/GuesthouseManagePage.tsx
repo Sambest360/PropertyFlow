@@ -3,6 +3,10 @@
  * blocked dates and listing settings (/workspace/guesthouses/:id, /new).
  */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { ImageDropzone } from '../../components/ImageDropzone'
+import { joinGuesthousePhotos, splitGuesthousePhotos } from '../../lib/guesthousePhotos'
+import { useAuth } from '../../context/AuthContext'
+import { canChangeListingLiveStatus } from '../../lib/listingLiveStatus'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, ExternalLink, Plus, Trash2 } from 'lucide-react'
 import { Badge, Button, Card, EmptyState, Input, Modal, PageHeader, Select, Textarea } from '../../components/ui'
@@ -41,8 +45,12 @@ const EMPTY: GuesthouseInput = {
 }
 
 function SettingsForm({ initial, onSaved, isNew }: { initial: GuesthouseInput; onSaved: (id: string) => void; isNew: boolean }) {
+  const { user } = useAuth()
+  const isOwner = canChangeListingLiveStatus(user)
   const [f, setF] = useState<GuesthouseInput>(initial)
-  const [photosText, setPhotosText] = useState((initial.photos ?? []).join('\n'))
+  const initialPhotos = splitGuesthousePhotos(initial.photos ?? [])
+  const [uploaded, setUploaded] = useState<string[]>(initialPhotos.uploaded)
+  const [photosText, setPhotosText] = useState(initialPhotos.links)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -50,9 +58,14 @@ function SettingsForm({ initial, onSaved, isNew }: { initial: GuesthouseInput; o
 
   const submit = async (e: FormEvent) => {
     e.preventDefault()
+    const joined = joinGuesthousePhotos(uploaded, photosText)
+    if (joined.failedUploads > 0) {
+      setError(`${joined.failedUploads} photo(s) did not upload. Remove them or try again.`)
+      return
+    }
     setBusy(true)
     setError(null)
-    const body = { ...f, photos: photosText.split(/\s+/).map((s) => s.trim()).filter(Boolean) }
+    const body = { ...f, photos: joined.photos }
     try {
       const out = isNew ? await createGuesthouseApi(body) : await updateGuesthouseApi(String((initial as { id?: string }).id), body)
       setSaved(true)
@@ -75,7 +88,15 @@ function SettingsForm({ initial, onSaved, isNew }: { initial: GuesthouseInput; o
           <label className={lbl}>Suburb<Input className="mt-1" value={f.suburb ?? ''} onChange={(e) => set({ suburb: e.target.value })} /></label>
           <label className={lbl}>City / town<Input className="mt-1" required value={f.city ?? ''} onChange={(e) => set({ city: e.target.value })} /></label>
         </div>
-        <label className={lbl}>Photo links (one per line, first is the cover)
+        <ImageDropzone
+          value={uploaded}
+          onChange={(next) => { setUploaded(next); setSaved(false) }}
+          reorderable
+          max={20}
+          label="Photos"
+          hint="Drag & drop or click to upload. The first photo is the cover."
+        />
+        <label className={lbl}>Or paste photo links (one per line)
           <Textarea className="mt-1 font-mono text-xs" rows={3} value={photosText} onChange={(e) => { setPhotosText(e.target.value); setSaved(false) }} placeholder="https://…/front.jpg" />
         </label>
       </Card>
@@ -121,12 +142,20 @@ function SettingsForm({ initial, onSaved, isNew }: { initial: GuesthouseInput; o
 
       <Card className="flex flex-wrap items-end justify-between gap-3 p-5">
         <label className={lbl}>Visibility
-          <Select className="mt-1 w-56" value={f.status} onChange={(e) => set({ status: e.target.value as GuesthouseStatus })} disabled={isNew}>
+          <Select
+            className="mt-1 w-56"
+            value={f.status}
+            onChange={(e) => set({ status: e.target.value as GuesthouseStatus })}
+            disabled={isNew || (!isOwner && initial.status === 'published')}
+          >
             <option value="draft">Draft — hidden</option>
-            <option value="published">Published — guests can book</option>
+            <option value="published" disabled={!isOwner}>Published — guests can book</option>
             <option value="paused">Paused — no new bookings</option>
           </Select>
           {isNew && <span className="mt-1 block text-xs text-ink-400">Save, add rooms, then publish.</span>}
+          {!isNew && !isOwner && (
+            <span className="mt-1 block text-xs text-ink-400">Only a Lekaya Rentals admin can publish or unpublish a guest house.</span>
+          )}
         </label>
         <div className="flex items-center gap-3">
           {saved && <span className="text-sm text-emerald-600">Saved</span>}
@@ -141,16 +170,28 @@ function SettingsForm({ initial, onSaved, isNew }: { initial: GuesthouseInput; o
 function RoomModal({ houseId, room, open, onClose, onSaved }: { houseId: string; room: Room | null; open: boolean; onClose: () => void; onSaved: () => void }) {
   const init: RoomInput = room ?? { name: '', description: '', bedSetup: '1 queen bed', maxGuests: 2, nightlyRate: 0, weekendRate: null, cleaningFee: 0, minNights: 1, maxNights: 30, photos: [], active: true }
   const [f, setF] = useState<RoomInput>(init)
-  const [photos, setPhotos] = useState((init.photos ?? []).join('\n'))
+  const [uploaded, setUploaded] = useState<string[]>(() => splitGuesthousePhotos(init.photos ?? []).uploaded)
+  const [photos, setPhotos] = useState(() => splitGuesthousePhotos(init.photos ?? []).links)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  useEffect(() => { setF(init); setPhotos((init.photos ?? []).join('\n')); setError(null) }, [room, open]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const split = splitGuesthousePhotos(init.photos ?? [])
+    setF(init)
+    setUploaded(split.uploaded)
+    setPhotos(split.links)
+    setError(null)
+  }, [room, open]) // eslint-disable-line react-hooks/exhaustive-deps
   const set = (p: RoomInput) => setF((x) => ({ ...x, ...p }))
   const save = async () => {
+    const joined = joinGuesthousePhotos(uploaded, photos)
+    if (joined.failedUploads > 0) {
+      setError(`${joined.failedUploads} photo(s) did not upload. Remove them or try again.`)
+      return
+    }
     setBusy(true)
     setError(null)
     try {
-      await saveRoomApi(houseId, room?.id ?? null, { ...f, photos: photos.split(/\s+/).filter(Boolean) })
+      await saveRoomApi(houseId, room?.id ?? null, { ...f, photos: joined.photos })
       onSaved()
       onClose()
     } catch (err) {
@@ -177,7 +218,8 @@ function RoomModal({ houseId, room, open, onClose, onSaved }: { houseId: string;
           <label className={lbl}>Min nights<Input className="mt-1" type="number" min={1} value={f.minNights ?? 1} onChange={(e) => set({ minNights: Number(e.target.value) })} /></label>
           <label className={lbl}>Max nights<Input className="mt-1" type="number" min={1} value={f.maxNights ?? 30} onChange={(e) => set({ maxNights: Number(e.target.value) })} /></label>
         </div>
-        <label className={lbl}>Photo links (one per line)<Textarea className="mt-1 font-mono text-xs" rows={2} value={photos} onChange={(e) => setPhotos(e.target.value)} /></label>
+        <ImageDropzone value={uploaded} onChange={setUploaded} reorderable max={20} label="Photos" hint="Drag & drop or click to upload. The first photo is the cover." />
+        <label className={lbl}>Or paste photo links (one per line)<Textarea className="mt-1 font-mono text-xs" rows={2} value={photos} onChange={(e) => setPhotos(e.target.value)} /></label>
         <label className="flex items-center gap-2 text-sm text-ink"><input type="checkbox" checked={f.active !== false} onChange={(e) => set({ active: e.target.checked })} />Bookable</label>
         {error && <p className="rounded-lg bg-accent-50 px-3 py-2 text-sm text-accent-700">{error}</p>}
       </div>
