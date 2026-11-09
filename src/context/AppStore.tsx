@@ -177,6 +177,7 @@ import {
   viewingBelongsToApplication,
 } from '../lib/blockedApplicants'
 import { roomsToInfraRooms } from '../lib/infraRoomsFromBootstrap'
+import { defaultRoomLayout } from '../lib/roomLayout'
 import type { PostgresBootstrap } from '../lib/api/postgresClient'
 import { isApiEnabled } from '../lib/api/config'
 import { ensureLeaseEnvelopeForSign, leaseSignatureSaved } from '../lib/leaseSignatureOrdering'
@@ -3624,14 +3625,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         beds: r.beds,
         baths: r.baths,
         areaSqm: r.areaSqm,
-        layout:
-          r.layout ??
-          ({
-            x: 5 + (i % 2) * 48,
-            y: 5 + Math.floor(i / 2) * 32,
-            w: 42,
-            h: 28,
-          } as InfraRoom['layout']),
+        layout: r.layout ?? defaultRoomLayout(i, roomDrafts.length),
       }))
 
       const beds = roomTotals.bedrooms
@@ -3944,13 +3938,14 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const unitId = prev.unitId
       const unit = stateRef.current.units.find((u) => u.id === unitId)
       const clientId = unit?.clientId ?? prev.agencyId
-      const infraForUnit = roomsToInfraRooms(rooms, unitId, clientId)
+      const unitInfraRooms = stateRef.current.infraRooms.filter((r) => r.unitId === unitId)
+      // The wizard sends rooms without layouts: keep each room's saved box.
+      const infraForUnit = roomsToInfraRooms(rooms, unitId, clientId, [...unitInfraRooms, ...(prev.rooms ?? [])])
       // Rooms dropped in the wizard must go from the rooms table too, or the
       // next bootstrap brings them back. The wizard edits these same ids; when
       // none match (it was seeded from property.rooms, whose ids are raw uuids
       // that may alias a kept room) nothing is deleted.
       const keptRoomIds = new Set(rooms.map((r) => r.id))
-      const unitInfraRooms = stateRef.current.infraRooms.filter((r) => r.unitId === unitId)
       const removedRoomIds = unitInfraRooms.some((r) => keptRoomIds.has(r.id))
         ? unitInfraRooms.filter((r) => !keptRoomIds.has(r.id)).map((r) => r.id)
         : []

@@ -52,6 +52,8 @@ import {
   titleTypeConfirmExists,
 } from './listingTitleTypeConfirm.js'
 import { titleTypeWarning } from '../src/lib/listingSizes.js'
+import { clampRoomLayoutValue } from '../src/lib/roomLayout.js'
+import { checkViolationFromDbError } from './dbConstraintError.js'
 import { sanitizePipeline } from '../src/lib/pipeline/applicationPipeline.js'
 import { sanitizeLeaseHtml } from '../src/lib/lease/leaseTemplate.js'
 import { notifyWaitlistSpotOpen } from './listingLimits.js'
@@ -555,13 +557,17 @@ export async function handlePersist(
   if (resource === 'user') {
     // Jim B2: a created user with no password gets a crypto-random temp one,
     // returned once to the creator (route sends Cache-Control: no-store).
-    const res = await upsertUserWithResult(id, data)
+    const res = await upsertUserWithResult(id, data).catch((e: unknown) => {
+      throw checkViolationFromDbError(e) ?? e
+    })
     invalidateIdMapCache()
     return res.generatedTempPassword
       ? { ok: true, id, uuid: res.uuid, tempPassword: res.generatedTempPassword }
       : { ok: true, id, uuid: res.uuid }
   }
-  const uuid = await upsertEntity(resource, id, data, actorUserId ?? null, actorRole ?? null, audit ?? null)
+  const uuid = await upsertEntity(resource, id, data, actorUserId ?? null, actorRole ?? null, audit ?? null).catch((e: unknown) => {
+    throw checkViolationFromDbError(e) ?? e
+  })
   if (
     resource === 'user' ||
     resource === 'agency' ||
@@ -1458,10 +1464,10 @@ async function upsertRoom(feId: string, d: Record<string, unknown>): Promise<str
       num(d.beds) ?? 0,
       num(d.baths) ?? 0,
       num(d.area) ?? num(d.areaSqm),
-      layout?.x ?? null,
-      layout?.y ?? null,
-      layout?.w ?? null,
-      layout?.h ?? null,
+      clampRoomLayoutValue(layout?.x),
+      clampRoomLayoutValue(layout?.y),
+      clampRoomLayoutValue(layout?.w),
+      clampRoomLayoutValue(layout?.h),
       num(d.sortOrder) ?? 0,
     ],
   )

@@ -2,6 +2,7 @@ import type { InfraRoom, InternalAsset, RoomKind, Unit } from '../data/infrastru
 import type { PropertyAsset, Room } from '../types/domain'
 import type { IdMapCache } from './idMap'
 import { feFromCache } from './idMap.js'
+import { defaultRoomLayout, type RoomLayout } from './roomLayout.js'
 
 export type DbRoomRow = {
   id: string
@@ -33,15 +34,6 @@ export type DbInternalAssetRow = {
   warranty_expires_at?: Date | string | null
   notes?: string | null
   metadata?: { model?: unknown; purchaseDate?: unknown } | null
-}
-
-function defaultLayout(index: number): InfraRoom['layout'] {
-  return {
-    x: 5 + (index % 2) * 48,
-    y: 5 + Math.floor(index / 2) * 32,
-    w: 42,
-    h: 28,
-  }
 }
 
 function parseRoomKind(kind: string): RoomKind {
@@ -98,6 +90,8 @@ export function mapDbRoomRowToInfraRoom(
     unitFeId: string
     clientFeId: string
     layoutIndex: number
+    /** Rooms in this unit, so the default grid fits them all inside 0..100. */
+    layoutCount?: number
   },
 ): InfraRoom {
   const hasLayout =
@@ -118,7 +112,7 @@ export function mapDbRoomRowToInfraRoom(
           w: Number(row.layout_w),
           h: Number(row.layout_h),
         }
-      : defaultLayout(opts.layoutIndex),
+      : defaultRoomLayout(opts.layoutIndex, opts.layoutCount),
   }
 }
 
@@ -131,6 +125,8 @@ export function mapDbRoomsToInfraRooms(
     mapAgencyFe: (uuid: string | null | undefined) => string | null | undefined
   },
 ): InfraRoom[] {
+  const perUnit = new Map<string, number>()
+  for (const row of rows) perUnit.set(row.unit_id, (perUnit.get(row.unit_id) ?? 0) + 1)
   const byUnit = new Map<string, number>()
   const out: InfraRoom[] = []
   for (const row of rows) {
@@ -146,6 +142,7 @@ export function mapDbRoomsToInfraRooms(
         unitFeId,
         clientFeId,
         layoutIndex: idx,
+        layoutCount: perUnit.get(row.unit_id),
       }),
     )
   }
@@ -195,11 +192,25 @@ export function propertyRoomsToInfraRooms(
 ): InfraRoom[] {
   if (!unit || !property.rooms?.length) return []
   const clientId = unit.clientId || property.agencyId
-  return property.rooms.map((r, i) => propertyRoomToInfraRoom(r, unit.id, clientId, startIndex + i))
+  const count = startIndex + property.rooms.length
+  return property.rooms.map((r, i) => propertyRoomToInfraRoom(r, unit.id, clientId, startIndex + i, count))
 }
 
-export function roomsToInfraRooms(rooms: Room[], unitId: string, clientId: string): InfraRoom[] {
-  return rooms.map((r, i) => propertyRoomToInfraRoom(r, unitId, clientId, i))
+/**
+ * Rooms for one unit. `saved` (rooms already in the store) supplies the
+ * layout for a room that doesn't bring its own, so an edit that resends rooms
+ * without layouts keeps the floor plan instead of resetting it.
+ */
+export function roomsToInfraRooms(
+  rooms: Room[],
+  unitId: string,
+  clientId: string,
+  saved?: ReadonlyArray<{ id: string; layout?: RoomLayout | null }>,
+): InfraRoom[] {
+  return rooms.map((r, i) => {
+    const kept = r.layout ? undefined : saved?.find((s) => s.id === r.id && s.layout)?.layout ?? undefined
+    return propertyRoomToInfraRoom(kept ? { ...r, layout: kept } : r, unitId, clientId, i, rooms.length)
+  })
 }
 
 function propertyRoomToInfraRoom(
@@ -207,8 +218,9 @@ function propertyRoomToInfraRoom(
   unitId: string,
   clientId: string,
   layoutIndex: number,
+  layoutCount?: number,
 ): InfraRoom {
-  const layout = r.layout ?? defaultLayout(layoutIndex)
+  const layout = r.layout ?? defaultRoomLayout(layoutIndex, layoutCount)
   return {
     id: r.id,
     clientId,
