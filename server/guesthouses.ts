@@ -738,7 +738,6 @@ export async function myGuestBookings(actor: DemoActor): Promise<GuestBooking[]>
   if (!me) throw err(401, 'Sign in first')
   const rows = await query<BookingRow>(
     `${BOOKING_SELECT} WHERE b.guest_user_id = $1::uuid
-        OR lower(b.guest_email) = (SELECT lower(email) FROM users WHERE id = $1::uuid)
       ORDER BY b.check_in DESC LIMIT 200`,
     [me],
   )
