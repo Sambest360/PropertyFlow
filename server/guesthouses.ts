@@ -446,7 +446,7 @@ export async function listPublicGuesthouses(q: Record<string, string | undefined
       const cheapest = open.map((r) => quoteStay(r, Number(h.tourism_levy_pct), stay.checkIn, stay.nights)).sort((a, b) => a.total - b.total)[0]
       stayQuote = cheapest
     }
-    items.push({ ...toHouse(h, live), availableRooms, stayQuote })
+    items.push({ ...toHouse(h, live), contactPhone: null, contactEmail: null, availableRooms, stayQuote })
   }
   const sort = q.sort
   if (sort === 'price_asc') items.sort((a, b) => (a.fromPrice ?? 0) - (b.fromPrice ?? 0))
