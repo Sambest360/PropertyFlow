@@ -121,6 +121,8 @@ export type Guesthouse = {
   contactEmail: string | null
   status: GuesthouseStatus
   hostName: string | null
+  /** Agency the guest house belongs to (null for a private landlord). */
+  agencyName: string | null
   fromPrice: number | null
   maxGuests: number
   roomCount: number
@@ -166,8 +168,10 @@ export type GuestBooking = {
 }
 
 export type Block = { id: string; roomId: string; startDate: string; endDate: string; reason: string | null }
-export type ManagedSummary = Guesthouse & { upcoming: number; pendingRequests: number; occupancy30: number; revenue30: number }
-export type ManagedGuesthouse = Guesthouse & { rooms: Room[]; blocks: Block[]; bookings: GuestBooking[] }
+/** Who a managed guest house belongs to. */
+export type Ownership = { agencyId: string | null; ownerUserId: string | null }
+export type ManagedSummary = Guesthouse & Ownership & { upcoming: number; pendingRequests: number; occupancy30: number; revenue30: number }
+export type ManagedGuesthouse = Guesthouse & Ownership & { rooms: Room[]; blocks: Block[]; bookings: GuestBooking[] }
 
 export type StaySearch = { q?: string; checkIn?: string; checkOut?: string; guests?: number; sort?: string }
 
@@ -194,7 +198,11 @@ export const myStayBookingsApi = () => call<GuestBooking[]>('/api/stays/bookings
 // Management
 export const listGuesthousesApi = () => call<ManagedSummary[]>('/api/guesthouses')
 export const getGuesthouseApi = (id: string) => call<ManagedGuesthouse>(`/api/guesthouses/${encodeURIComponent(id)}`)
-export type GuesthouseInput = Partial<Omit<Guesthouse, 'id' | 'hostName' | 'fromPrice' | 'maxGuests' | 'roomCount' | 'createdAt' | 'cancellationText'>>
+export type GuesthouseInput = Partial<Omit<Guesthouse, 'id' | 'hostName' | 'agencyName' | 'fromPrice' | 'maxGuests' | 'roomCount' | 'createdAt' | 'cancellationText'>> & Partial<Ownership>
+export type Assignee = { id: string; name: string; role: string; agencyId: string | null }
+export type AssigneeOptions = { canAssign: boolean; agencies: Array<{ id: string; name: string }>; people: Assignee[] }
+/** Who a guest house can be assigned to (empty unless you are the owner or an agency admin). */
+export const listGuesthouseAssigneesApi = () => call<AssigneeOptions>('/api/guesthouses/assignees')
 export const createGuesthouseApi = (b: GuesthouseInput) => call<{ id: string }>('/api/guesthouses', { method: 'POST', body: JSON.stringify(b) })
 export const updateGuesthouseApi = (id: string, b: GuesthouseInput) =>
   call<{ id: string }>(`/api/guesthouses/${encodeURIComponent(id)}`, { method: 'PUT', body: JSON.stringify(b) })

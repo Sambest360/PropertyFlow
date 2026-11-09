@@ -1648,6 +1648,9 @@ app.post('/api/contractor-bookings/:id', async (c) => {
       return c.json(await (await gh()).saveGuesthouse(await requireActor(c), null, b))
     } catch (e) { return fail(c, e) }
   })
+  app.get('/api/guesthouses/assignees', async (c) => {
+    try { return c.json(await (await gh()).listGuesthouseAssignees(await requireActor(c))) } catch (e) { return fail(c, e) }
+  })
   app.get('/api/guesthouses/:id', async (c) => {
     try { return c.json(await (await gh()).getManagedGuesthouse(await requireActor(c), c.req.param('id'))) } catch (e) { return fail(c, e) }
   })

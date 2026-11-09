@@ -20,6 +20,7 @@ import {
   deleteRoomApi,
   fmtDay,
   getGuesthouseApi,
+  listGuesthouseAssigneesApi,
   isoDay,
   removeBlockApi,
   saveRoomApi,
@@ -28,6 +29,7 @@ import {
   type CancellationPolicy,
   type GuesthouseInput,
   type GuesthouseStatus,
+  type AssigneeOptions,
   type ManagedGuesthouse,
   type Room,
   type RoomInput,
@@ -42,6 +44,61 @@ const EMPTY: GuesthouseInput = {
   name: '', description: '', address: '', suburb: '', city: '', photos: [], amenities: [], houseRules: '',
   checkInTime: '14:00', checkOutTime: '10:00', cancellationPolicy: 'moderate', instantBook: false, tourismLevyPct: 1,
   contactPhone: '', contactEmail: '', status: 'draft',
+}
+
+const ASSIGNEE_ROLE: Record<string, string> = {
+  AGENCY_ADMIN: 'Agency admin', CLIENT_ADMIN: 'Agency admin', AGENT_ADMIN: 'Agent admin', GROUND_AGENT: 'Agent', LANDLORD: 'Landlord',
+}
+
+/** "Belongs to": the agency and person a guest house is linked to, like a property's agency and agent. */
+function BelongsTo({ f, set, isNew, current }: {
+  f: GuesthouseInput
+  set: (p: GuesthouseInput) => void
+  isNew: boolean
+  current: { agencyName?: string | null; hostName?: string | null }
+}) {
+  const [opts, setOpts] = useState<AssigneeOptions | null>(null)
+  useEffect(() => { listGuesthouseAssigneesApi().then(setOpts).catch(() => setOpts({ canAssign: false, agencies: [], people: [] })) }, [])
+  const lbl = 'block text-sm font-medium text-ink'
+  if (!opts) return null
+  if (!opts.canAssign) {
+    return (
+      <Card className="space-y-1 p-5">
+        <h3 className="font-semibold text-ink">Belongs to</h3>
+        <p className="text-sm text-ink">
+          {isNew ? 'You and your agency (as the creator).' : [current.agencyName, current.hostName].filter(Boolean).join(' · ') || 'Not assigned yet'}
+        </p>
+        <p className="text-xs text-ink-400">Your agency admin can reassign it to someone else in the agency.</p>
+      </Card>
+    )
+  }
+  const ownerMode = opts.agencies.length > 1 || opts.people.some((p) => p.role === 'LANDLORD')
+  const agencyId = f.agencyId ?? ''
+  const people = opts.people.filter((p) => (agencyId ? p.agencyId === agencyId && p.role !== 'LANDLORD' : !ownerMode || p.role === 'LANDLORD'))
+  return (
+    <Card className="space-y-3 p-5">
+      <div>
+        <h3 className="font-semibold text-ink">Belongs to</h3>
+        <p className="text-sm text-ink-400">The agency and person responsible for this guest house. They see it, manage its bookings and get booking alerts.</p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {ownerMode && (
+          <label className={lbl}>Agency
+            <Select className="mt-1" value={agencyId} onChange={(e) => set({ agencyId: e.target.value || null, ownerUserId: null })}>
+              <option value="">No agency — private landlord</option>
+              {opts.agencies.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </Select>
+          </label>
+        )}
+        <label className={lbl}>{agencyId || !ownerMode ? 'Agent / staff member' : 'Landlord'}
+          <Select className="mt-1" value={f.ownerUserId ?? ''} onChange={(e) => set({ ownerUserId: e.target.value || null })}>
+            <option value="">{isNew ? 'Me (the creator)' : 'Choose…'}</option>
+            {people.map((p) => <option key={p.id} value={p.id}>{p.name} — {ASSIGNEE_ROLE[p.role] ?? p.role}</option>)}
+          </Select>
+        </label>
+      </div>
+    </Card>
+  )
 }
 
 function SettingsForm({ initial, onSaved, isNew }: { initial: GuesthouseInput; onSaved: (id: string) => void; isNew: boolean }) {
@@ -65,7 +122,9 @@ function SettingsForm({ initial, onSaved, isNew }: { initial: GuesthouseInput; o
     }
     setBusy(true)
     setError(null)
-    const body = { ...f, photos: joined.photos }
+    const body: GuesthouseInput = { ...f, photos: joined.photos }
+    // Send the assignment only when a person is chosen; the server keeps the creator / current owner otherwise.
+    if (!body.ownerUserId) { delete body.ownerUserId; delete body.agencyId }
     try {
       const out = isNew ? await createGuesthouseApi(body) : await updateGuesthouseApi(String((initial as { id?: string }).id), body)
       setSaved(true)
@@ -100,6 +159,8 @@ function SettingsForm({ initial, onSaved, isNew }: { initial: GuesthouseInput; o
           <Textarea className="mt-1 font-mono text-xs" rows={3} value={photosText} onChange={(e) => { setPhotosText(e.target.value); setSaved(false) }} placeholder="https://…/front.jpg" />
         </label>
       </Card>
+
+      <BelongsTo f={f} set={set} isNew={isNew} current={initial as { agencyName?: string | null; hostName?: string | null }} />
 
       <Card className="space-y-3 p-5">
         <h3 className="font-semibold text-ink">Amenities</h3>
@@ -218,7 +279,7 @@ function RoomModal({ houseId, room, open, onClose, onSaved }: { houseId: string;
           <label className={lbl}>Min nights<Input className="mt-1" type="number" min={1} value={f.minNights ?? 1} onChange={(e) => set({ minNights: Number(e.target.value) })} /></label>
           <label className={lbl}>Max nights<Input className="mt-1" type="number" min={1} value={f.maxNights ?? 30} onChange={(e) => set({ maxNights: Number(e.target.value) })} /></label>
         </div>
-        <ImageDropzone value={uploaded} onChange={setUploaded} reorderable max={20} label="Photos" hint="Drag & drop or click to upload. The first photo is the cover." />
+        <ImageDropzone value={uploaded} onChange={setUploaded} reorderable max={20} label="Room photos" hint="Show the bed, bathroom and view. Guests see these when they pick this room; the first is the cover." />
         <label className={lbl}>Or paste photo links (one per line)<Textarea className="mt-1 font-mono text-xs" rows={2} value={photos} onChange={(e) => setPhotos(e.target.value)} /></label>
         <label className="flex items-center gap-2 text-sm text-ink"><input type="checkbox" checked={f.active !== false} onChange={(e) => set({ active: e.target.checked })} />Bookable</label>
         {error && <p className="rounded-lg bg-accent-50 px-3 py-2 text-sm text-accent-700">{error}</p>}

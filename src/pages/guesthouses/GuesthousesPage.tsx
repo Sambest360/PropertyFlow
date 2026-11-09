@@ -79,6 +79,7 @@ export default function GuesthousesPage() {
                     <Badge tone={h.status === 'published' ? 'success' : h.status === 'paused' ? 'warning' : 'neutral'}>{h.status}</Badge>
                   </div>
                   <p className="text-sm text-ink-400">{[h.suburb, h.city].filter(Boolean).join(', ')} · {h.roomCount} room{h.roomCount === 1 ? '' : 's'}</p>
+                  {(h.agencyName || h.hostName) && <p className="text-xs text-ink-400">Belongs to {[h.hostName, h.agencyName].filter(Boolean).join(' · ')}</p>}
                   <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
                     <div className="rounded-lg bg-primary-50 p-2"><p className="text-base font-semibold text-ink">{h.pendingRequests}</p>requests</div>
                     <div className="rounded-lg bg-primary-50 p-2"><p className="text-base font-semibold text-ink">{h.upcoming}</p>upcoming</div>

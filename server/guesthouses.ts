@@ -237,6 +237,7 @@ type HouseRow = {
   client_id: string | null
   owner_user_id: string | null
   owner_name: string | null
+  agency_name: string | null
   name: string
   description: string
   address: string
@@ -311,6 +312,8 @@ export type Guesthouse = {
   contactEmail: string | null
   status: 'draft' | 'published' | 'paused'
   hostName: string | null
+  /** Agency the guest house belongs to (null for a private landlord). */
+  agencyName: string | null
   fromPrice: number | null
   maxGuests: number
   roomCount: number
@@ -318,11 +321,11 @@ export type Guesthouse = {
 }
 
 const HOUSE_SELECT = `SELECT g.id::text AS id, g.client_id::text AS client_id, g.owner_user_id::text AS owner_user_id,
-    NULLIF(TRIM(CONCAT_WS(' ', o.first_name, o.last_name)), '') AS owner_name,
+    NULLIF(TRIM(CONCAT_WS(' ', o.first_name, o.last_name)), '') AS owner_name, ac.company_name AS agency_name,
     g.name, g.description, g.address, g.suburb, g.city, g.latitude, g.longitude, g.photos, g.amenities,
     g.house_rules, g.check_in_time, g.check_out_time, g.cancellation_policy, g.instant_book,
     g.tourism_levy_pct::text AS tourism_levy_pct, g.contact_phone, g.contact_email, g.status, g.created_at
-  FROM guesthouses g LEFT JOIN users o ON o.id = g.owner_user_id`
+  FROM guesthouses g LEFT JOIN users o ON o.id = g.owner_user_id LEFT JOIN clients ac ON ac.id = g.client_id`
 const ROOM_SELECT = `SELECT id::text AS id, guesthouse_id::text AS guesthouse_id, name, description, bed_setup, max_guests,
     nightly_rate::text AS nightly_rate, weekend_rate::text AS weekend_rate, cleaning_fee::text AS cleaning_fee,
     min_nights, max_nights, photos, active, sort_order
@@ -370,6 +373,7 @@ function toHouse(h: HouseRow, rooms: Room[]): Guesthouse {
     contactEmail: h.contact_email,
     status: h.status,
     hostName: h.owner_name,
+    agencyName: h.agency_name,
     fromPrice: live.length ? Math.min(...live.map((r) => r.nightlyRate)) : null,
     maxGuests: live.reduce((m, r) => Math.max(m, r.maxGuests), 0),
     roomCount: live.length,
@@ -635,7 +639,7 @@ async function hostRecipients(clientId: string | null, ownerId: string | null): 
   if (ownerId) out.push(ownerId)
   if (clientId) {
     const rows = await query<{ id: string }>(
-      `SELECT id::text AS id FROM users WHERE client_id = $1::uuid AND role IN ('CLIENT_ADMIN', 'AGENT_ADMIN') LIMIT 20`,
+      `SELECT id::text AS id FROM users WHERE client_id = $1::uuid AND role IN ('AGENCY_ADMIN', 'CLIENT_ADMIN', 'AGENT_ADMIN') AND active LIMIT 20`,
       [clientId],
     ).catch(() => [])
     out.push(...rows.map((r) => r.id))
@@ -808,7 +812,11 @@ async function ownedHouse(me: Me, id: string): Promise<HouseRow> {
   return rows[0]
 }
 
-export type ManagedSummary = Guesthouse & {
+/** Who a managed guest house belongs to (ids for the "Belongs to" pickers). */
+export type Ownership = { agencyId: string | null; ownerUserId: string | null }
+const ownership = (h: HouseRow): Ownership => ({ agencyId: h.client_id, ownerUserId: h.owner_user_id })
+
+export type ManagedSummary = Guesthouse & Ownership & {
   upcoming: number
   pendingRequests: number
   occupancy30: number
@@ -843,6 +851,7 @@ export async function listManagedGuesthouses(actor: DemoActor): Promise<ManagedS
     const roomNights = Math.max(1, rs.filter((r) => r.active).length * 30)
     return {
       ...toHouse(h, rs),
+      ...ownership(h),
       upcoming: s?.upcoming ?? 0,
       pendingRequests: s?.pending ?? 0,
       occupancy30: Math.round(((s?.nights30 ?? 0) / roomNights) * 100),
@@ -853,7 +862,7 @@ export async function listManagedGuesthouses(actor: DemoActor): Promise<ManagedS
 
 export type Block = { id: string; roomId: string; startDate: string; endDate: string; reason: string | null }
 
-export async function getManagedGuesthouse(actor: DemoActor, id: string): Promise<Guesthouse & { rooms: Room[]; blocks: Block[]; bookings: GuestBooking[] }> {
+export async function getManagedGuesthouse(actor: DemoActor, id: string): Promise<Guesthouse & Ownership & { rooms: Room[]; blocks: Block[]; bookings: GuestBooking[] }> {
   await ensureGuesthouseTables()
   await expireStale()
   const me = await manager(actor)
@@ -868,6 +877,7 @@ export async function getManagedGuesthouse(actor: DemoActor, id: string): Promis
   const bookings = await query<BookingRow>(`${BOOKING_SELECT} WHERE b.guesthouse_id = $1::uuid ORDER BY b.check_in DESC LIMIT 500`, [h.id])
   return {
     ...toHouse(h, rooms),
+    ...ownership(h),
     rooms,
     blocks: blocks.map((k) => ({ id: k.id, roomId: k.room_id, startDate: toDate(k.start_date), endDate: toDate(k.end_date), reason: k.reason })),
     bookings: bookings.map((b) => toBooking(b)),
@@ -881,6 +891,79 @@ export async function listManagedBookings(actor: DemoActor): Promise<GuestBookin
   const params: unknown[] = []
   const rows = await query<BookingRow>(`${BOOKING_SELECT} WHERE ${scope(me, params)} ORDER BY b.check_in DESC LIMIT 1000`, params)
   return rows.map((b) => toBooking(b))
+}
+
+export type Assignee = { id: string; name: string; role: string; agencyId: string | null }
+export type AssigneeOptions = { canAssign: boolean; agencies: Array<{ id: string; name: string }>; people: Assignee[] }
+
+const ASSIGNABLE_STAFF = ['AGENCY_ADMIN', 'CLIENT_ADMIN', 'AGENT_ADMIN', 'GROUND_AGENT']
+
+/** Who may reassign: the owner (any agency, staff or private landlord) and agency admins (staff of their own agency). */
+async function assignMode(actor: DemoActor, me: Me): Promise<'owner' | 'agency' | null> {
+  if (me.role === 'super_admin') {
+    const { actorIsOwner } = await import('./listingLiveStatus.js')
+    return (await actorIsOwner(actor.role, actor.userId)) ? 'owner' : null
+  }
+  if ((me.role === 'client_admin' || me.role === 'agent_admin') && me.clientId) return 'agency'
+  return null
+}
+
+export async function listGuesthouseAssignees(actor: DemoActor): Promise<AssigneeOptions> {
+  await ensureGuesthouseTables()
+  const me = await manager(actor)
+  const mode = await assignMode(actor, me)
+  if (!mode) return { canAssign: false, agencies: [], people: [] }
+  const agencies = await query<{ id: string; name: string }>(
+    mode === 'owner'
+      ? `SELECT id::text AS id, company_name AS name FROM clients WHERE status <> 'cancelled' ORDER BY company_name LIMIT 2000`
+      : `SELECT id::text AS id, company_name AS name FROM clients WHERE id = $1::uuid`,
+    mode === 'owner' ? [] : [me.clientId],
+  )
+  const people = await query<{ id: string; name: string | null; email: string; role: string; client_id: string | null }>(
+    `SELECT id::text AS id, NULLIF(TRIM(CONCAT_WS(' ', first_name, last_name)), '') AS name, email, role, client_id::text AS client_id
+       FROM users
+      WHERE active AND ${mode === 'owner'
+        ? `((role = ANY($1::text[]) AND client_id IS NOT NULL) OR role = 'LANDLORD')`
+        : `role = ANY($1::text[]) AND client_id = $2::uuid`}
+      ORDER BY first_name, last_name LIMIT 5000`,
+    mode === 'owner' ? [ASSIGNABLE_STAFF] : [ASSIGNABLE_STAFF, me.clientId],
+  )
+  return {
+    canAssign: true,
+    agencies,
+    people: people.map((u) => ({ id: u.id, name: u.name ?? u.email, role: u.role, agencyId: u.client_id })),
+  }
+}
+
+/**
+ * The agency and person a save assigns, or null to leave them as they are.
+ * Only the owner and agency admins may choose; everyone else keeps `fallback`
+ * (the creator on a new house, unchanged on an edit).
+ */
+async function resolveOwnership(actor: DemoActor, me: Me, body: Record<string, unknown>, fallback: Ownership | null): Promise<Ownership | null> {
+  const sent = 'ownerUserId' in body || 'agencyId' in body
+  const mode = sent ? await assignMode(actor, me) : null
+  if (!mode) return fallback
+  const personId = body.ownerUserId ? uuid(body.ownerUserId, 'person') : null
+  if (!personId) {
+    if (fallback) return fallback
+    throw err(400, 'Choose the person this guest house belongs to')
+  }
+  const rows = await query<{ role: string; client_id: string | null; active: boolean }>(
+    `SELECT role, client_id::text AS client_id, active FROM users WHERE id = $1::uuid`,
+    [personId],
+  )
+  const u = rows[0]
+  if (!u || !u.active) throw err(400, 'That person was not found')
+  if (mode === 'agency') {
+    if (u.client_id !== me.clientId || !ASSIGNABLE_STAFF.includes(u.role)) throw err(403, 'You can only assign a guest house to someone in your agency')
+    return { agencyId: me.clientId, ownerUserId: personId }
+  }
+  const agencyId = body.agencyId ? uuid(body.agencyId, 'agency') : null
+  if (u.role === 'LANDLORD' && !agencyId) return { agencyId: null, ownerUserId: personId }
+  if (!ASSIGNABLE_STAFF.includes(u.role) && u.role !== 'LANDLORD') throw err(400, 'Guest houses belong to agency staff or landlords')
+  if (agencyId && u.client_id !== agencyId) throw err(400, 'That person does not work for the chosen agency')
+  return { agencyId: agencyId ?? u.client_id, ownerUserId: personId }
 }
 
 export async function saveGuesthouse(actor: DemoActor, id: string | null, body: Record<string, unknown>): Promise<{ id: string }> {
@@ -916,6 +999,10 @@ export async function saveGuesthouse(actor: DemoActor, id: string | null, body: 
       const { actorIsOwner } = await import('./listingLiveStatus.js')
       if (!(await actorIsOwner(actor.role, actor.userId))) throw err(403, 'Only a Lekaya Rentals admin can publish or unpublish a guest house')
     }
+    const owns = await resolveOwnership(actor, me, body, null)
+    if (owns) {
+      await query(`UPDATE guesthouses SET client_id = $2::uuid, owner_user_id = $3::uuid, updated_at = NOW() WHERE id = $1::uuid`, [h.id, owns.agencyId, owns.ownerUserId])
+    }
     await query(
       `UPDATE guesthouses SET name=$2, description=$3, address=$4, suburb=$5, city=$6, latitude=$7, longitude=$8, photos=$9::jsonb,
          amenities=$10, house_rules=$11, check_in_time=$12, check_out_time=$13, cancellation_policy=$14, instant_book=$15,
@@ -924,13 +1011,14 @@ export async function saveGuesthouse(actor: DemoActor, id: string | null, body: 
     )
     return { id: h.id }
   }
-  const owner = me.role === 'landlord' ? me.id : null
+  // A new guest house belongs to whoever creates it (and their agency), like a property.
+  const owns = (await resolveOwnership(actor, me, body, { agencyId: me.clientId, ownerUserId: me.id }))!
   const rows = await query<{ id: string }>(
     `INSERT INTO guesthouses (name, description, address, suburb, city, latitude, longitude, photos, amenities, house_rules,
         check_in_time, check_out_time, cancellation_policy, instant_book, tourism_levy_pct, contact_phone, contact_email, status,
         client_id, owner_user_id)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19::uuid,$20::uuid) RETURNING id::text AS id`,
-    [...vals, me.clientId, owner ?? (me.clientId ? null : me.id)],
+    [...vals, owns.agencyId, owns.ownerUserId],
   )
   return { id: rows[0].id }
 }

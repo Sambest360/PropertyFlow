@@ -15,6 +15,7 @@ import {
 } from '../../lib/api/guesthousesApi'
 import { Button, Input, Textarea } from '../../components/ui'
 import { AvailabilityCalendar } from './AvailabilityCalendar'
+import { ListingPhotoGallery } from '../../components/listing/ListingPhotoGallery'
 
 export default function StayDetailPage() {
   const { id = '' } = useParams()
@@ -139,15 +140,15 @@ export default function StayDetailPage() {
       <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-400">
         <span className="inline-flex items-center gap-1"><MapPin className="h-4 w-4" />{[house.suburb, house.city].filter(Boolean).join(', ')}</span>
         {house.instantBook && <span className="inline-flex items-center gap-1"><Zap className="h-4 w-4 text-amber-500" />Instant book</span>}
-        {house.hostName && <span>Hosted by {house.hostName}</span>}
+        {(house.hostName || house.agencyName) && <span>Hosted by {[house.hostName, house.agencyName].filter(Boolean).join(" · ")}</span>}
       </p>
 
-      <div className="mt-4 grid gap-2 overflow-hidden rounded-2xl sm:grid-cols-4 sm:grid-rows-2" style={{ maxHeight: 440 }}>
-        {(house.photos.length ? house.photos : [null]).slice(0, 5).map((src, i) => (
-          <div key={i} className={`bg-primary-50 ${i === 0 ? 'aspect-[4/3] sm:col-span-2 sm:row-span-2 sm:aspect-auto' : 'hidden aspect-[4/3] sm:block'}`}>
-            {src ? <img src={src} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full min-h-48 items-center justify-center text-primary-300"><BedDouble className="h-14 w-14" /></div>}
-          </div>
-        ))}
+      <div className="mt-4">
+        {house.photos.length ? (
+          <ListingPhotoGallery images={house.photos} title={house.name} />
+        ) : (
+          <div className="flex min-h-48 items-center justify-center rounded-2xl bg-primary-50 text-primary-300"><BedDouble className="h-14 w-14" /></div>
+        )}
       </div>
 
       <div className="mt-8 grid gap-10 lg:grid-cols-[1fr_380px]">
@@ -164,8 +165,9 @@ export default function StayDetailPage() {
                   onClick={() => setRoomId(r.id)}
                   className={`flex w-full gap-4 rounded-2xl border p-3 text-left transition ${r.id === roomId ? 'border-primary ring-2 ring-primary/20' : 'border-primary-100 hover:border-primary-300'}`}
                 >
-                  <div className="h-24 w-32 shrink-0 overflow-hidden rounded-xl bg-primary-50">
+                  <div className="relative h-24 w-32 shrink-0 overflow-hidden rounded-xl bg-primary-50">
                     {r.photos[0] ? <img src={r.photos[0]} alt="" className="h-full w-full object-cover" /> : <div className="flex h-full items-center justify-center text-primary-300"><BedDouble className="h-8 w-8" /></div>}
+                    {r.photos.length > 1 && <span className="absolute bottom-1 right-1 rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-medium text-white">{r.photos.length} photos</span>}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-start justify-between gap-2">
@@ -183,14 +185,23 @@ export default function StayDetailPage() {
             </div>
           </section>
 
-          {room && (
+          {room && room.photos.length > 0 && (
             <section>
-              <h2 className="mb-1 text-lg font-semibold text-ink">Availability · {room.name}</h2>
+              <h2 className="mb-1 text-lg font-semibold text-ink">Inside {room.name}</h2>
+              <p className="mb-3 text-sm text-ink-400">{room.bedSetup} · up to {room.maxGuests} guests. Tap a photo to see it full size.</p>
+              <ListingPhotoGallery images={room.photos} title={`${house.name} — ${room.name}`} />
+            </section>
+          )}
+
+          {room && (
+            <section id="dates" className="scroll-mt-24">
+              <h2 className="mb-1 text-lg font-semibold text-ink">Choose your dates · {room.name}</h2>
               <p className="mb-3 text-sm text-ink-400">Tap your arrival day, then your departure day. Struck-through nights are taken.</p>
               <AvailabilityCalendar
                 unavailable={room.unavailable}
                 checkIn={checkIn}
                 checkOut={checkOut}
+                minNights={room.minNights}
                 onChange={(a, b) => setParam({ checkIn: a, checkOut: b })}
               />
             </section>
@@ -220,14 +231,19 @@ export default function StayDetailPage() {
         </div>
 
         <aside className="lg:sticky lg:top-24 lg:self-start">
-          <form onSubmit={submit} className="space-y-4 rounded-2xl border border-primary-100 bg-white p-5 shadow-sm">
+          <form id="book" onSubmit={submit} className="scroll-mt-24 space-y-4 rounded-2xl border border-primary-100 bg-white p-5 shadow-sm">
             <div className="grid grid-cols-2 gap-2">
-              <label className="text-xs font-semibold uppercase text-ink-400">Check in
-                <Input type="date" value={checkIn ?? ''} onChange={(e) => setParam({ checkIn: e.target.value, checkOut: checkOut && checkOut > e.target.value ? checkOut : undefined })} className="mt-1" />
-              </label>
-              <label className="text-xs font-semibold uppercase text-ink-400">Check out
-                <Input type="date" value={checkOut ?? ''} min={checkIn} onChange={(e) => setParam({ checkOut: e.target.value })} className="mt-1" />
-              </label>
+              {([['Check in', checkIn], ['Check out', checkOut]] as const).map(([label, value]) => (
+                <button
+                  key={label}
+                  type="button"
+                  onClick={() => document.getElementById('dates')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+                  className="rounded-xl border border-primary-100 px-3 py-2 text-left hover:border-primary-300"
+                >
+                  <span className="block text-xs font-semibold uppercase text-ink-400">{label}</span>
+                  <span className={`block text-sm font-medium ${value ? 'text-ink' : 'text-ink-300'}`}>{value ? fmtDay(value) : 'Add date'}</span>
+                </button>
+              ))}
               <label className="col-span-2 text-xs font-semibold uppercase text-ink-400">Guests
                 <Input type="number" min={1} max={30} value={guests} onChange={(e) => setParam({ guests: String(Math.max(1, Number(e.target.value) || 1)) })} className="mt-1" />
               </label>
@@ -264,6 +280,34 @@ export default function StayDetailPage() {
           </form>
         </aside>
       </div>
+
+      {/* Phone: the chosen dates and price stay in view while scrolling the calendar. */}
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-primary-100 bg-white px-4 py-3 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] lg:hidden">
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
+          <button type="button" className="min-w-0 text-left" onClick={() => document.getElementById('dates')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}>
+            {checkIn && checkOut ? (
+              <>
+                <span className="block truncate text-sm font-semibold text-ink">{fmtDay(checkIn)} → {fmtDay(checkOut)}</span>
+                <span className="block text-xs text-ink-400">{room?.quote ? `${zar(room.quote.total)} total · ${room.quote.nights} night${room.quote.nights === 1 ? '' : 's'}` : room?.name}</span>
+              </>
+            ) : (
+              <>
+                <span className="block text-sm font-semibold text-ink">{room ? `${zar(room.nightlyRate)} / night` : 'Choose a room'}</span>
+                <span className="block text-xs text-primary underline">{checkIn ? 'Now pick your check-out day' : 'Add your dates'}</span>
+              </>
+            )}
+          </button>
+          <Button
+            type="button"
+            className="shrink-0"
+            disabled={!checkIn || !checkOut}
+            onClick={() => document.getElementById('book')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+          >
+            {canBook ? 'Reserve' : 'Check price'}
+          </Button>
+        </div>
+      </div>
+      <div className="h-20 lg:hidden" aria-hidden />
     </div>
   )
 }
