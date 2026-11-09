@@ -51,6 +51,7 @@ export function propertyStatusTone(label: string): StatusTone {
 }
 
 /** Returns a user-facing reason when a draft cannot go live yet. */
+/** Keep in step with server/listingReadiness.ts (the server check; same rules, same wording). */
 export function validatePropertyReadyToPublish(property: PropertyAsset): string | null {
   if (property.status !== 'Draft') return null
   if (!property.title?.trim()) return 'Add a listing title before publishing.'
@@ -58,5 +59,6 @@ export function validatePropertyReadyToPublish(property: PropertyAsset): string 
   if (!property.address?.trim() && !property.suburb?.trim()) {
     return 'Add a street address or suburb before publishing.'
   }
+  if (!(Number(property.rent) > 0) && !(Number(property.price) > 0)) return 'Add a rent or sale price before publishing.'
   return null
 }

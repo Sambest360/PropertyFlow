@@ -56,6 +56,7 @@ import { clampRoomLayoutValue } from '../src/lib/roomLayout.js'
 import { checkViolationFromDbError } from './dbConstraintError.js'
 import { normalizeStatusKey } from './publicUnitStatus.js'
 import { actorIsOwner, liveChangeRefusal, type LiveRow } from './listingLiveStatus.js'
+import { assertListingReadyToPublish } from './listingReadiness.js'
 import { sanitizePipeline } from '../src/lib/pipeline/applicationPipeline.js'
 import { sanitizeLeaseHtml } from '../src/lib/lease/leaseTemplate.js'
 import { notifyWaitlistSpotOpen } from './listingLimits.js'
@@ -1344,6 +1345,19 @@ async function upsertProperty(
         }
       }
     }
+  }
+
+  // B1: a listing going live (not public -> public) must be ready: title,
+  // photo, address, price. Before the gate, whose owner branch writes an
+  // 'approved' row. Values this save writes win over the stored ones.
+  if (actorRole !== null && isPublicUnitStatus(normalizeStatusKey(requestedStatusKey)) && !isPublicUnitStatus(normalizeStatusKey(storedStatus))) {
+    await assertListingReadyToPublish(uuid, {
+      title: str(d.title, unitNumber),
+      images: Array.isArray(d.images) ? d.images : undefined,
+      formattedAddress: d.formattedAddress ? str(d.formattedAddress) : undefined,
+      rent: num(d.rent),
+      price: num(d.price),
+    })
   }
 
   // Only the owner makes a listing live; anyone else's publish waits for approval.

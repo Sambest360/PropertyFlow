@@ -75,7 +75,7 @@ describe.skipIf(!url)('MKT-2: VACANT needs approval like PUBLISHED (real app + P
         action: 'upsert',
         id,
         data: {
-          title, type: 'Apartment', beds: 2, rent: 9000, listingMode: 'rent', status, statusKey,
+          title, type: 'Apartment', beds: 2, rent: 9000, listingMode: 'rent', status, statusKey, images: ['/api/files/mkt2-cover.jpg'],
           agencyId: AG_A, agentId: USERS.adminA.fe, buildingId: BLD_FE, titleTypeConfirmed: true,
         },
       }),

@@ -120,6 +120,8 @@ describe.skipIf(!url)('listing title/type confirm (Test 6, A2, A15)', () => {
     agentId: AGENT_FE,
     listingMode: 'rent',
     rent: 8500,
+    // B1: going live needs a photo (server/listingReadiness.ts).
+    images: ['/api/files/ltt-cover.jpg'],
     ...over,
   })
 

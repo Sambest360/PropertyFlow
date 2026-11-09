@@ -65,7 +65,7 @@ describe.skipIf(!url)('P4: only the owner changes whether a listing is live (rea
     return { status: res.status, json, text }
   }
   const base = (fe: string) => ({
-    title: `P4 ${fe} apartment`, type: 'Apartment', beds: 2, rent: 9000, listingMode: 'rent',
+    title: `P4 ${fe} apartment`, type: 'Apartment', beds: 2, rent: 9000, listingMode: 'rent', images: ['/api/files/p4-cover.jpg'],
     agencyId: AG_A, agentId: USERS.groundA.fe, buildingId: BLD_FE, titleTypeConfirmed: true,
   })
   async function save(who: UserKey, fe: string, over: Record<string, unknown>, resource: 'property' | 'unit' = 'property') {
@@ -185,12 +185,12 @@ describe.skipIf(!url)('P4: only the owner changes whether a listing is live (rea
     expect({ m: m.status, mStatus, o: o.status, oStatus: (await unit('p4-l2'))?.status }).toEqual({ m: 200, mStatus: 'MAINTENANCE', o: 200, oStatus: 'OCCUPIED' })
   })
 
-  it('j. an Administrator cannot approve or decline, but still reads the queue', async () => {
+  it('j. an Administrator cannot approve or decline, and (B1) cannot read the queue either', async () => {
     const ap = await call('POST', `/api/admin/listing-approvals/${uuids['p4-l4']}`, 'administrator', { decision: 'approve' })
     const de = await call('POST', `/api/admin/listing-approvals/${uuids['p4-l4']}`, 'administrator', { decision: 'decline', note: 'x' })
     const list = await call('GET', '/api/admin/listing-approvals', 'administrator')
     const row = await unit('p4-l4')
-    expect({ ap: ap.status, de: de.status, list: list.status, status: row?.status, approval: row?.approval }).toEqual({ ap: 403, de: 403, list: 200, status: 'DRAFT', approval: 'pending' })
+    expect({ ap: ap.status, de: de.status, list: list.status, status: row?.status, approval: row?.approval }).toEqual({ ap: 403, de: 403, list: 403, status: 'DRAFT', approval: 'pending' })
   })
 
   it('k. the owner approves, declines, features and unpublishes', async () => {

@@ -1780,6 +1780,10 @@ app.post('/api/persist/batch', async (c) => {
   try {
     const body = (await c.req.json()) as { ops?: PersistBody[] }
     const ops = Array.isArray(body.ops) ? body.ops : []
+    // B1: cap the batch before any op runs (the app's largest batch is 2 ops).
+    if (ops.length > 200) {
+      return c.json({ error: 'persist_batch_too_large', message: 'At most 200 operations per batch' }, 400)
+    }
     const results = []
     for (const op of ops) {
       results.push(await gatedPersist(c, op))
