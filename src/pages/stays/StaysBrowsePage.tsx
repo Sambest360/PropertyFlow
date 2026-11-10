@@ -45,19 +45,19 @@ export default function StaysBrowsePage() {
   const apply = (s: StaySearch) => {
     const p = new URLSearchParams()
     for (const [k, v] of Object.entries({ ...s, sort: search.sort })) if (v) p.set(k, String(v))
-    setParams(p)
+    setParams(p, { replace: true })
   }
   const dated = Boolean(search.checkIn && search.checkOut)
 
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-7xl overflow-x-hidden px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
       <div className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">Guest houses & short stays</h1>
         <p className="mt-1 text-sm text-ink-400">Book a room by the night. Pick your dates to see live availability and the full price.</p>
       </div>
-      <StaySearchBar key={params.toString()} value={search} onSearch={apply} />
+      <StaySearchBar value={search} onSearch={apply} />
 
-      <div className="mt-6 flex flex-wrap items-center justify-between gap-3">
+      <div className="mt-6 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <p className="text-sm text-ink-400">
           {items === null ? 'Searching…' : `${items.length} place${items.length === 1 ? '' : 's'}${dated ? ' available for your dates' : ''}`}
         </p>
@@ -70,7 +70,7 @@ export default function StaysBrowsePage() {
               const p = new URLSearchParams(params)
               if (e.target.value) p.set('sort', e.target.value)
               else p.delete('sort')
-              setParams(p)
+              setParams(p, { replace: true })
             }}
             aria-label="Sort"
           >
@@ -82,11 +82,11 @@ export default function StaysBrowsePage() {
       </div>
       {error && <p className="mt-4 rounded-lg bg-accent-50 px-3 py-2 text-sm text-accent-700">{error}</p>}
 
-      <div className="mt-4 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mt-4 grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
         {items === null &&
           Array.from({ length: 6 }).map((_, i) => <div key={i} className="aspect-[4/3] animate-pulse rounded-2xl bg-primary-50" />)}
         {items?.map((h) => (
-          <Link key={h.id} to={`/stays/${h.id}${stayQuery(search)}`} className="group block">
+          <Link key={h.id} to={`/stays/${h.id}${stayQuery(search)}`} className="group block min-w-0">
             <div className="relative aspect-[4/3] overflow-hidden rounded-2xl bg-primary-50">
               {h.photos[0] ? (
                 <img src={h.photos[0]} alt="" loading="lazy" className="h-full w-full object-cover transition group-hover:scale-105" />

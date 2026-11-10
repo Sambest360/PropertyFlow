@@ -1,7 +1,8 @@
 /**
- * Night picker for a stay: tap the arrival day, then the departure day.
- * The chosen dates show in the Check in / Check out boxes above the months,
- * the nights between are shaded, and taken nights are struck through.
+ * Date filter for a stay: tap the arrival day, then the departure day. It only
+ * sets the dates (no navigation). The Check in / Check out boxes sit on top:
+ * tap one to change just that date. Nights between are shaded; taken nights
+ * are struck through.
  */
 import { useMemo, useState } from 'react'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
@@ -41,11 +42,27 @@ export function AvailabilityCalendar({
     return { year: base.getFullYear(), month: base.getMonth() }
   })
 
-  const choosingCheckOut = Boolean(checkIn && !checkOut)
+  // Which date the next tap sets. Tapping a box chooses it; otherwise it follows the order in, then out.
+  const [editing, setEditing] = useState<'in' | 'out' | null>(null)
+  const mode: 'in' | 'out' = editing ?? (checkIn && !checkOut ? 'out' : 'in')
+  const choosingCheckOut = mode === 'out'
+  const rangeFree = (a: string, b: string) => {
+    for (let x = a; x < b; x = addDays(x, 1)) if (taken.has(x)) return false
+    return true
+  }
 
   const pick = (d: string) => {
     setHint(null)
-    if (!checkIn || checkOut || d <= checkIn) {
+    if (mode === 'in' && checkIn && checkOut && editing === 'in') {
+      // Changing only the arrival day: keep the departure day when the new stay is still valid.
+      setEditing(null)
+      if (taken.has(d)) { setHint('That night is already booked. Pick another arrival day.'); return }
+      if (d < checkOut && rangeFree(d, checkOut) && nightsBetween(d, checkOut) >= minNights) onChange(d, checkOut)
+      else onChange(d, undefined)
+      return
+    }
+    setEditing(null)
+    if (mode === 'in' || !checkIn || d <= checkIn) {
       if (taken.has(d)) {
         setHint('That night is already booked. Pick another arrival day.')
         return
@@ -68,11 +85,16 @@ export function AvailabilityCalendar({
     onChange(checkIn, d)
   }
 
-  const box = (label: string, value: string | undefined, active: boolean, placeholder: string) => (
-    <div className={`rounded-xl border px-3 py-2 ${active ? 'border-primary ring-2 ring-primary/20' : 'border-primary-100'}`}>
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-400">{label}</p>
-      <p className={`text-sm font-medium ${value ? 'text-ink' : 'text-ink-300'}`}>{value ? fmtDay(value) : placeholder}</p>
-    </div>
+  const box = (which: 'in' | 'out', label: string, value: string | undefined, placeholder: string) => (
+    <button
+      type="button"
+      onClick={() => { setHint(null); setEditing(which === 'out' && !checkIn ? 'in' : which) }}
+      className={`rounded-xl border px-3 py-2 text-left transition ${mode === which ? 'border-primary ring-2 ring-primary/20' : 'border-primary-100 hover:border-primary-300'}`}
+      aria-pressed={mode === which}
+    >
+      <span className="block text-[11px] font-semibold uppercase tracking-wide text-ink-400">{label}</span>
+      <span className={`block text-sm font-medium ${value ? 'text-ink' : 'text-ink-300'}`}>{value ? fmtDay(value) : placeholder}</span>
+    </button>
   )
 
   const nights = checkIn && checkOut ? nightsBetween(checkIn, checkOut) : 0
@@ -80,15 +102,15 @@ export function AvailabilityCalendar({
   return (
     <div>
       <div className="mb-3 grid grid-cols-2 gap-2">
-        {box('Check in', checkIn, !checkIn || Boolean(checkIn && checkOut), 'Add date')}
-        {box('Check out', checkOut, choosingCheckOut, choosingCheckOut ? 'Now tap departure' : 'Add date')}
+        {box('in', 'Check in', checkIn, 'Add date')}
+        {box('out', 'Check out', checkOut, choosingCheckOut ? 'Now tap departure' : 'Add date')}
       </div>
       <div className="mb-3 flex min-h-6 items-center justify-between gap-2 text-sm">
         <span className={hint ? 'text-accent-700' : 'text-ink-400'}>
-          {hint ?? (nights ? `${nights} night${nights === 1 ? '' : 's'} selected` : choosingCheckOut ? 'Tap your departure day' : 'Tap your arrival day')}
+          {hint ?? (editing === 'in' ? 'Tap a new arrival day' : editing === 'out' ? 'Tap a new departure day' : nights ? `${nights} night${nights === 1 ? '' : 's'} selected` : choosingCheckOut ? 'Tap your departure day' : 'Tap your arrival day')}
         </span>
         {checkIn && (
-          <button type="button" onClick={() => { setHint(null); onChange(undefined, undefined) }} className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-primary hover:underline">
+          <button type="button" onClick={() => { setHint(null); setEditing(null); onChange(undefined, undefined) }} className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-primary hover:underline">
             <X className="h-3.5 w-3.5" /> Clear dates
           </button>
         )}

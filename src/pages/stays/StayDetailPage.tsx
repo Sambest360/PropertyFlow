@@ -132,11 +132,11 @@ export default function StayDetailPage() {
 
   const canBook = Boolean(room && checkIn && checkOut && room.available)
   return (
-    <div className="mx-auto max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-7xl overflow-x-hidden px-4 py-6 sm:px-6 lg:px-8">
       <Link to={`/stays${checkIn && checkOut ? `?checkIn=${checkIn}&checkOut=${checkOut}&guests=${guests}` : ''}`} onClick={(e) => { if (location.key !== 'default') { e.preventDefault(); navigate(-1) } }} className="inline-flex items-center gap-1 text-sm text-ink-400 hover:text-ink">
         <ArrowLeft className="h-4 w-4" /> Back
       </Link>
-      <h1 className="mt-3 text-2xl font-semibold tracking-tight text-ink sm:text-3xl">{house.name}</h1>
+      <h1 className="mt-3 break-words text-2xl font-semibold tracking-tight text-ink sm:text-3xl">{house.name}</h1>
       <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-400">
         <span className="inline-flex items-center gap-1"><MapPin className="h-4 w-4" />{[house.suburb, house.city].filter(Boolean).join(', ')}</span>
         {house.instantBook && <span className="inline-flex items-center gap-1"><Zap className="h-4 w-4 text-amber-500" />Instant book</span>}
@@ -151,7 +151,7 @@ export default function StayDetailPage() {
         )}
       </div>
 
-      <div className="mt-8 grid gap-10 lg:grid-cols-[1fr_380px]">
+      <div className="mt-8 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_380px]">
         <div className="min-w-0 space-y-8">
           {house.description && <p className="whitespace-pre-line text-ink">{house.description}</p>}
 
