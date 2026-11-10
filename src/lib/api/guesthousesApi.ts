@@ -176,9 +176,11 @@ export type ManagedGuesthouse = Guesthouse & Ownership & { rooms: Room[]; blocks
 export type StaySearch = { q?: string; checkIn?: string; checkOut?: string; guests?: number; sort?: string }
 
 // Public
-export const searchStaysApi = (s: StaySearch) => call<{ items: StayListItem[] }>(`/api/stays${qs(s)}`)
+/** Dates go to the server only as a pair: while the guest has picked just the arrival day, ask without dates. */
+const datePair = (s: StaySearch): StaySearch => (s.checkIn && s.checkOut ? s : { ...s, checkIn: undefined, checkOut: undefined })
+export const searchStaysApi = (s: StaySearch) => call<{ items: StayListItem[] }>(`/api/stays${qs(datePair(s))}`)
 export const getStayApi = (id: string, s: StaySearch) =>
-  call<Guesthouse & { rooms: RoomAvailability[] }>(`/api/stays/${encodeURIComponent(id)}${qs(s)}`)
+  call<Guesthouse & { rooms: RoomAvailability[] }>(`/api/stays/${encodeURIComponent(id)}${qs(datePair(s))}`)
 export const createStayBookingApi = (b: {
   roomId: string
   checkIn: string

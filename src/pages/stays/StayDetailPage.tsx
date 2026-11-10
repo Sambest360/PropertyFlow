@@ -40,7 +40,8 @@ export default function StayDetailPage() {
 
   useEffect(() => {
     let live = true
-    getStayApi(id, { checkIn, checkOut, guests })
+    const pair = checkIn && checkOut ? { checkIn, checkOut } : {}
+    getStayApi(id, { ...pair, guests })
       .then((h) => {
         if (!live) return
         setHouse(h)
@@ -51,7 +52,7 @@ export default function StayDetailPage() {
     return () => {
       live = false
     }
-  }, [id, checkIn, checkOut, guests])
+  }, [id, checkIn && checkOut ? `${checkIn}|${checkOut}` : '', guests])
 
   const room = useMemo(() => house?.rooms.find((r) => r.id === roomId) ?? null, [house, roomId])
 
@@ -89,7 +90,8 @@ export default function StayDetailPage() {
     }
   }
 
-  if (error) {
+  // Once the page has loaded, a failed refresh (e.g. dates the server rejects) shows inline instead of replacing the page.
+  if (error && !house) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-16 text-center">
         <p className="font-medium text-ink">{error}</p>
@@ -136,6 +138,7 @@ export default function StayDetailPage() {
       <Link to={`/stays${checkIn && checkOut ? `?checkIn=${checkIn}&checkOut=${checkOut}&guests=${guests}` : ''}`} onClick={(e) => { if (location.key !== 'default') { e.preventDefault(); navigate(-1) } }} className="inline-flex items-center gap-1 text-sm text-ink-400 hover:text-ink">
         <ArrowLeft className="h-4 w-4" /> Back
       </Link>
+      {error && <p className="mt-3 rounded-lg bg-accent-50 px-3 py-2 text-sm text-accent-700">{error}</p>}
       <h1 className="mt-3 break-words text-2xl font-semibold tracking-tight text-ink sm:text-3xl">{house.name}</h1>
       <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-ink-400">
         <span className="inline-flex items-center gap-1"><MapPin className="h-4 w-4" />{[house.suburb, house.city].filter(Boolean).join(', ')}</span>

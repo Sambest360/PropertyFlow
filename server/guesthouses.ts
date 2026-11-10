@@ -178,7 +178,9 @@ function nightsBetween(checkIn: string, checkOut: string): number {
 export function parseStay(checkIn: unknown, checkOut: unknown): { checkIn: string; checkOut: string; nights: number } | null {
   const a = String(checkIn ?? '')
   const b = String(checkOut ?? '')
-  if (!a && !b) return null
+  // Half-picked dates (only check-in so far) mean "no dates yet" for search and availability;
+  // a booking still refuses them (createGuestBooking throws on null).
+  if (!a || !b) return null
   if (!DATE_RE.test(a) || !DATE_RE.test(b)) throw err(400, 'Choose check-in and check-out dates')
   const nights = nightsBetween(a, b)
   if (!(nights >= 1)) throw err(400, 'Check-out must be after check-in')
