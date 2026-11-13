@@ -1,3 +1,4 @@
+import { joinParts } from './joinParts'
 import type { MaintenanceTicket, PropertyAsset, Viewing, ViewingSlot } from '../types/domain'
 import type { CalendarMarker } from '../components/admin/MiniCalendar'
 
@@ -108,7 +109,7 @@ export function buildMaintenanceCalendarEvents(
         kind: 'ticket' as const,
         id: ticket.id,
         title: ticket.title,
-        meta: `${prop?.title ?? ticket.assetLabel} · ${ticket.reportedBy}`,
+        meta: joinParts(prop?.title ?? ticket.assetLabel, ticket.reportedBy),
         status: ticket.status,
         date: ticket.openedAt,
         propertyId: ticket.propertyId,

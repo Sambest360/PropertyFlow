@@ -8080,7 +8080,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           userId: contractorUserId,
           agencyId: ticket.agencyId,
           title: 'New maintenance job assigned',
-          body: `${ticket.title} · ${ticket.priority} priority — ${ticket.assetLabel}`,
+          body: `${ticket.title} · ${ticket.priority} priority${ticket.assetLabel ? ` — ${ticket.assetLabel}` : ''}`,
           link: `/workspace/operations/maintenance/${encodeURIComponent(ticketId)}`,
           resource: 'maintenance',
           action: 'updated',

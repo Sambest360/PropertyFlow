@@ -34,6 +34,7 @@ const CalculatorsPage = lazy(() => import('./pages/market/CalculatorsPage'))
 const PrivacyPage = lazy(() => import('./pages/legal/PrivacyPage'))
 const TermsPage = lazy(() => import('./pages/legal/TermsPage'))
 const ContactPage = lazy(() => import('./pages/ContactPage'))
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 const SeoLandingPage = lazy(() => import('./pages/market/SeoLandingPage'))
 const StaysBrowsePage = lazy(() => import('./pages/stays/StaysBrowsePage'))
 const StayDetailPage = lazy(() => import('./pages/stays/StayDetailPage'))
@@ -325,6 +326,8 @@ export default function App() {
                 <Route path="to-rent/:city" element={<Suspense fallback={<PageFallback />}><SeoLandingPage kind="rent" /></Suspense>} />
                 <Route path="for-sale/:city" element={<Suspense fallback={<PageFallback />}><SeoLandingPage kind="sale" /></Suspense>} />
                 <Route path="rooms-to-rent/:city" element={<Suspense fallback={<PageFallback />}><SeoLandingPage kind="rooms" /></Suspense>} />
+                {/* Any other public address: say so, with the header and footer, instead of jumping home. */}
+                <Route path="*" element={<Suspense fallback={<PageFallback />}><NotFoundPage /></Suspense>} />
               </Route>
 
               <Route

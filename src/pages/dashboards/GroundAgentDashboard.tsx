@@ -1,3 +1,4 @@
+import { joinParts } from '../../lib/joinParts'
 import { useMemo, useState, type ReactNode } from 'react'
 import { CalendarDays, ClipboardList, FileCheck2, Wrench } from 'lucide-react'
 import { useStore } from '../../context/AppStore'
@@ -139,7 +140,7 @@ export function GroundAgentDashboard() {
       kind: 'ticket',
       id: t.id,
       title: t.title,
-      meta: `${t.assetLabel} · ${t.reportedBy}`,
+      meta: joinParts(t.assetLabel, t.reportedBy),
       status: t.status,
       date: t.openedAt,
       propertyId: t.propertyId,

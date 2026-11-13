@@ -1,6 +1,6 @@
 /** Public: find a guest-house booking by reference + email, or list my stays when signed in (/stays/bookings). */
 import { useEffect, useState, type FormEvent } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import {
   BOOKING_STATUS_LABEL,
@@ -44,7 +44,9 @@ function BookingCard({ b, onCancel }: { b: GuestBooking; onCancel?: () => void }
 
 export default function MyStaysPage() {
   const { isAuthenticated } = useAuth()
-  const [reference, setReference] = useState('')
+  // The booking emails link here with ?ref=GH-…, so the guest only types their email.
+  const [searchParams] = useSearchParams()
+  const [reference, setReference] = useState(() => (searchParams.get('ref') ?? '').trim().slice(0, 16))
   const [email, setEmail] = useState('')
   const [found, setFound] = useState<GuestBooking | null>(null)
   const [mine, setMine] = useState<GuestBooking[] | null>(null)

@@ -1,3 +1,4 @@
+import { joinParts } from '../../lib/joinParts'
 import type { Application, MaintenanceTicket, PropertyAsset, Viewing } from '../../types/domain'
 import { hideBackendUuid } from '../../lib/displayIds'
 import type { AttentionHeroProps } from './AttentionHero'
@@ -45,7 +46,7 @@ export function pickAttentionHero(
       kind: 'issue',
       eyebrow: 'Needs your attention',
       title: ticket.title,
-      detail: `${property?.title ?? ticket.assetLabel} · ${ticket.reportedBy}`,
+      detail: joinParts(property?.title ?? ticket.assetLabel, ticket.reportedBy),
       badge: ticket.priority,
       badgeTone: 'danger',
       secondaryBadge: property?.type,

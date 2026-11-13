@@ -23,6 +23,7 @@ import {
 } from '../components/payments/types'
 import { usePortalHydrating } from '../components/PortalHydrationGate'
 import { DataTableSkeleton } from '../components/loading/PageSkeleton'
+import { csvFileName, downloadCsv, toCsv } from '../lib/csv'
 
 function readStoredView(): PaymentsViewMode {
   try {
@@ -200,6 +201,30 @@ export default function Payments() {
       ? `${filtered.length} ${filtered.length === 1 ? 'payment' : 'payments'}`
       : `${filtered.length} of ${portfolio.length} payments`
 
+  /** The rows on screen (after search and filters), for the bookkeeper. */
+  const exportCsv = () => {
+    const csv = toCsv(
+      ['Payment', 'Property', 'Party', 'Type', 'Amount', 'Due date', 'Status', 'Days overdue', 'Paid on', 'Amount received', 'Method', 'Reference', 'Recorded by'],
+      filtered.map(({ payment: p, property, daysOverdue }) => [
+        p.id,
+        property?.title ?? p.propertyId,
+        // A landlord does not see who paid on screen, so not in the file either.
+        hideParty ? '' : p.partyName,
+        p.type,
+        p.amount,
+        p.dueDate,
+        p.status,
+        daysOverdue > 0 ? daysOverdue : '',
+        p.paidAt ? p.paidAt.slice(0, 10) : '',
+        p.paidAmount ?? '',
+        p.method ?? '',
+        p.reference ?? '',
+        hideParty ? '' : (p.recordedByName ?? ''),
+      ]),
+    )
+    downloadCsv(csvFileName('payments'), csv)
+  }
+
   return (
     <RequirePermission permission="payments.view">
       <div className="animate-fade-in">
@@ -207,16 +232,27 @@ export default function Payments() {
           title="Payments"
           subtitle="Scan the ledger, spot overdue lines and missing proof, then open a payment for full detail. Schedule/overdue + in-app dunning — no live bank debit."
           actions={
-            canManage ? (
+            <div className="flex flex-wrap gap-2">
               <Button
                 className="min-h-11"
                 variant="secondary"
-                disabled={cycleBusy}
-                onClick={handleRunRentCycle}
+                disabled={filtered.length === 0}
+                onClick={exportCsv}
+                title="Download the payments shown below as a spreadsheet file"
               >
-                {cycleBusy ? 'Running…' : 'Run rent cycle'}
+                Export CSV
               </Button>
-            ) : null
+              {canManage ? (
+                <Button
+                  className="min-h-11"
+                  variant="secondary"
+                  disabled={cycleBusy}
+                  onClick={handleRunRentCycle}
+                >
+                  {cycleBusy ? 'Running…' : 'Run rent cycle'}
+                </Button>
+              ) : null}
+            </div>
           }
         />
 

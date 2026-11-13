@@ -284,7 +284,8 @@ async function assertStaffWriter(actor: DemoActor, scope: ActorScope, lease: Lea
   if (!scope.agency || scope.agency !== leaseAgency) {
     throw forbiddenError('Forbidden: inspection is outside your agency')
   }
-  if (actor.role === 'client_admin') return
+  // Agency admins (the principal and agent_admin) may change any inspection in their agency.
+  if (actor.role === 'client_admin' || actor.role === 'agent_admin') return
   if (!AGENTS.has(actor.role)) throw forbiddenError('Forbidden: only the assigned agent or an agency admin can change this inspection')
   if (scope.user && (scope.user === lease.agent_id || scope.user === lease.unit_agent_id)) return
   throw forbiddenError('Forbidden: only the assigned agent or an agency admin can change this inspection')
@@ -1220,7 +1221,7 @@ export async function decideDeductions(actor: DemoActor, leaseRef: string, body:
   const landlord = actor.role === 'landlord' && scope.user && scope.user === lease.landlord_id
   const admin =
     actor.role === 'super_admin' ||
-    (actor.role === 'client_admin' && Boolean(scope.agency) && scope.agency === (await agencyFeId(lease.client_id)))
+    ((actor.role === 'client_admin' || actor.role === 'agent_admin') && Boolean(scope.agency) && scope.agency === (await agencyFeId(lease.client_id)))
   if (!landlord && !admin) throw forbiddenError('Forbidden: only the landlord or an agency admin can decide deductions')
   const ids = Array.isArray(body.ids) ? body.ids.map(String).filter((id) => isUuid(id)) : []
   const status = String(body.status ?? 'APPROVED').toUpperCase()

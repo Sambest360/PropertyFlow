@@ -24,7 +24,10 @@ export type EffectiveLimits = {
   viewingCount: number
 }
 
-const STAFF_ADMIN = new Set(['super_admin', 'client_admin'])
+// agent_admin is the agency admin people sign in as (client_admin is the
+// principal, not offered when adding a user): both manage every unit in
+// their own agency. The same-agency check runs before this set is read.
+const STAFF_ADMIN = new Set(['super_admin', 'client_admin', 'agent_admin'])
 const ASSIGNED_AGENT = new Set(['agent_admin', 'ground_agent', 'agent'])
 
 export function limitsApply(listingType: string | null | undefined): boolean {

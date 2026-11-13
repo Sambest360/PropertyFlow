@@ -21,6 +21,7 @@
  * own guest houses). Guests can book signed in or as a guest (name + email),
  * and look up / cancel a booking by reference + email.
  */
+import { randomInt } from 'node:crypto'
 import { clientQuery, query, withTransaction } from './db.js'
 import { resolveUuid } from './entityMap.js'
 import { notifyUsers } from './supportDesk.js'
@@ -159,7 +160,10 @@ const int = (v: unknown, min: number, max: number, fallback: number): number => 
 const money = (n: number) => Math.round(n * 100) / 100
 const toDate = (v: Date | string): string =>
   typeof v === 'string' ? v.slice(0, 10) : new Date(v.getTime() - v.getTimezoneOffset() * 60000).toISOString().slice(0, 10)
-const today = () => new Date().toISOString().slice(0, 10)
+/** Today's date in South Africa (UTC+2, no daylight saving): the day guests and hosts see. */
+export const today = (now: Date = new Date()): string => new Date(now.getTime() + 2 * 3_600_000).toISOString().slice(0, 10)
+/** How far ahead a stay may start. The public calendar shows about 13 months of taken nights. */
+export const MAX_ADVANCE_DAYS = 540
 
 function photoList(v: unknown): string[] {
   if (!Array.isArray(v)) return []
@@ -220,7 +224,8 @@ export function quoteStay(
 
 /** What the guest gets back when they cancel, by policy and days before check-in. */
 export function refundPercent(policy: (typeof POLICIES)[number], checkIn: string, now = new Date()): number {
-  const hours = (Date.parse(`${checkIn}T14:00:00Z`) - now.getTime()) / 3_600_000
+  // Check-in is 14:00 in South Africa, which is 12:00 UTC.
+  const hours = (Date.parse(`${checkIn}T12:00:00Z`) - now.getTime()) / 3_600_000
   if (policy === 'flexible') return hours >= 24 ? 100 : 0
   if (policy === 'moderate') return hours >= 5 * 24 ? 100 : hours >= 24 ? 50 : 0
   return hours >= 14 * 24 ? 100 : hours >= 7 * 24 ? 50 : 0
@@ -521,8 +526,74 @@ async function takenRanges(roomIds: string[]): Promise<Map<string, Array<{ from:
 function newReference(): string {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   let s = 'GH-'
-  for (let i = 0; i < 6; i++) s += alphabet[Math.floor(Math.random() * alphabet.length)]
+  // The reference (with the guest's email) opens and cancels a booking, so it must not be guessable.
+  for (let i = 0; i < 8; i++) s += alphabet[randomInt(alphabet.length)]
   return s
+}
+
+export type GuestMailKind = 'requested' | 'confirmed' | 'declined' | 'cancelled_by_host' | 'cancelled_by_guest'
+type GuestMailBooking = Pick<GuestBooking, 'reference' | 'guesthouseName' | 'roomName' | 'checkIn' | 'checkOut' | 'nights' | 'guests' | 'total' | 'checkInTime' | 'checkOutTime'>
+
+const rand = (n: number) => `R ${n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ' ')}`
+
+/** Subject and text of the email a guest gets about their booking. Pure, so it can be tested. */
+export function guestBookingEmail(
+  kind: GuestMailKind,
+  b: GuestMailBooking,
+  extra: { refundPercent?: number; note?: string | null } = {},
+): { title: string; body: string } {
+  const stay = `${b.roomName}, ${b.checkIn} to ${b.checkOut} (${b.nights} night${b.nights === 1 ? '' : 's'}, ${b.guests} guest${b.guests === 1 ? '' : 's'})`
+  const ref = `Reference ${b.reference}.`
+  const keep = 'Keep this reference: with your email address it opens and cancels the booking.'
+  const note = extra.note ? ` Note from the host: ${extra.note}` : ''
+  switch (kind) {
+    case 'requested':
+      return {
+        title: `Booking request received: ${b.guesthouseName}`,
+        body: `${ref} ${stay}. Total ${rand(b.total)}. The host has 24 hours to accept; we will email you their answer. ${keep}`,
+      }
+    case 'confirmed':
+      return {
+        title: `Your stay at ${b.guesthouseName} is confirmed`,
+        body: `${ref} ${stay}. Total ${rand(b.total)}. Check-in from ${b.checkInTime}, check-out by ${b.checkOutTime}. The host will contact you about payment.${note} ${keep}`,
+      }
+    case 'declined':
+      return {
+        title: `Your booking request for ${b.guesthouseName} was declined`,
+        body: `${ref} ${stay}. The host could not take this booking and the dates were released.${note}`,
+      }
+    case 'cancelled_by_host':
+      return {
+        title: `Your stay at ${b.guesthouseName} was cancelled by the host`,
+        body: `${ref} ${stay}. Anything you have paid is due back to you in full; contact the host if it has not been returned.${note}`,
+      }
+    case 'cancelled_by_guest':
+      return {
+        title: `Booking cancelled: ${b.guesthouseName}`,
+        body: `${ref} ${stay}. You cancelled this booking. Refund due under the host's cancellation policy: ${extra.refundPercent ?? 0}% of what you have paid.`,
+      }
+  }
+}
+
+/**
+ * Email the guest. A guest without an account has no in-app notifications, so
+ * without this they get nothing after the booking screen. Never throws: a
+ * failed email must not undo or block the booking.
+ */
+async function emailGuest(kind: GuestMailKind, b: GuestBooking, extra: { refundPercent?: number; note?: string | null } = {}): Promise<void> {
+  try {
+    const { sendTemplateEmail } = await import('./email/templates.js')
+    const mail = guestBookingEmail(kind, b, extra)
+    await sendTemplateEmail('notification', {
+      to: b.guestEmail,
+      name: b.guestName.split(/\s+/)[0] || b.guestName,
+      title: mail.title,
+      body: mail.body,
+      action: { label: 'View my booking', href: `/stays/bookings?ref=${encodeURIComponent(b.reference)}` },
+    })
+  } catch (e) {
+    console.error('[guesthouse email]', e instanceof Error ? e.message : String(e))
+  }
 }
 
 async function actorUuid(actor: DemoActor | null): Promise<string | null> {
@@ -656,6 +727,7 @@ export async function createGuestBooking(actor: DemoActor | null, body: Record<s
   const stay = parseStay(body.checkIn, body.checkOut)
   if (!stay) throw err(400, 'Choose check-in and check-out dates')
   if (stay.checkIn < today()) throw err(400, 'Check-in date has passed')
+  if (nightsBetween(today(), stay.checkIn) > MAX_ADVANCE_DAYS) throw err(400, 'Bookings open up to 18 months ahead')
   const guests = int(body.guests, 1, 30, 1)
   const name = str(body.guestName, 160)
   const email = str(body.guestEmail, 200).toLowerCase()
@@ -723,7 +795,9 @@ export async function createGuestBooking(actor: DemoActor | null, body: Record<s
     action: 'created',
   }).catch(() => 0)
   const out = await query<BookingRow>(`${BOOKING_SELECT} WHERE b.id = $1::uuid`, [created.id])
-  return toBooking(out[0], true)
+  const booking = toBooking(out[0], true)
+  await emailGuest(created.status === 'pending' ? 'requested' : 'confirmed', booking)
+  return booking
 }
 
 export async function lookupGuestBooking(reference: string, email: string): Promise<GuestBooking> {
@@ -754,11 +828,14 @@ export async function cancelGuestBooking(reference: string, email: string): Prom
   const b = await lookupGuestBooking(reference, email)
   if (!['pending', 'confirmed'].includes(b.status)) throw err(400, 'This booking can no longer be cancelled')
   const pct = b.status === 'pending' ? 100 : refundPercent(b.cancellationPolicy, b.checkIn)
-  await query(
-    `UPDATE guesthouse_bookings SET status = 'cancelled', updated_at = NOW(),
-       host_note = CONCAT_WS(E'\\n', host_note, $2::text) WHERE id = $1::uuid`,
+  // The status is checked again in the UPDATE: the host may have acted since the read above.
+  const done = await query<{ id: string }>(
+    `UPDATE guesthouse_bookings SET status = 'cancelled', expires_at = NULL, updated_at = NOW(),
+       host_note = CONCAT_WS(E'\\n', host_note, $2::text)
+      WHERE id = $1::uuid AND status IN ('pending', 'confirmed') RETURNING id::text AS id`,
     [b.id, `Cancelled by guest (${pct}% refund under policy)`],
   )
+  if (!done[0]) throw err(400, 'This booking can no longer be cancelled')
   const meta = await query<{ client_id: string | null; owner_user_id: string | null }>(
     `SELECT client_id::text AS client_id, owner_user_id::text AS owner_user_id FROM guesthouses WHERE id = $1::uuid`,
     [b.guesthouseId],
@@ -771,7 +848,9 @@ export async function cancelGuestBooking(reference: string, email: string): Prom
     resource: 'guesthouse_booking',
     action: 'cancelled',
   }).catch(() => 0)
-  return { ...(await lookupGuestBooking(reference, email)), refundPercent: pct }
+  const after = await lookupGuestBooking(reference, email)
+  await emailGuest('cancelled_by_guest', after, { refundPercent: pct })
+  return { ...after, refundPercent: pct }
 }
 
 // ---------------------------------------------------------------- management
@@ -1106,17 +1185,26 @@ export async function addBlock(actor: DemoActor, houseId: string, body: Record<s
   const rid = uuid(body.roomId, 'room')
   const stay = parseStay(body.startDate, body.endDate)
   if (!stay) throw err(400, 'Choose the dates to block')
-  const room = await query<{ id: string }>(`SELECT id::text AS id FROM guesthouse_rooms WHERE id = $1::uuid AND guesthouse_id = $2::uuid`, [rid, h.id])
-  if (!room[0]) throw err(404, 'Room not found')
-  const clash = await query<{ reference: string }>(
-    `SELECT b.reference FROM guesthouse_bookings b WHERE b.room_id = $1::uuid AND ${LIVE_BOOKING} AND b.check_in < $3::date AND b.check_out > $2::date LIMIT 1`,
-    [rid, stay.checkIn, stay.checkOut],
-  )
-  if (clash[0]) throw err(409, `Booking ${clash[0].reference} falls in those dates`)
-  const rows = await query<{ id: string }>(
-    `INSERT INTO guesthouse_blocks (room_id, start_date, end_date, reason) VALUES ($1::uuid, $2::date, $3::date, $4) RETURNING id::text AS id`,
-    [rid, stay.checkIn, stay.checkOut, str(body.reason, 200) || null],
-  )
+  // Same room lock as a guest booking, so a block and a booking for the same nights cannot both go through.
+  const rows = await withTransaction(async (client) => {
+    const room = await clientQuery<{ id: string }>(
+      client,
+      `SELECT id::text AS id FROM guesthouse_rooms WHERE id = $1::uuid AND guesthouse_id = $2::uuid FOR UPDATE`,
+      [rid, h.id],
+    )
+    if (!room[0]) throw err(404, 'Room not found')
+    const clash = await clientQuery<{ reference: string }>(
+      client,
+      `SELECT b.reference FROM guesthouse_bookings b WHERE b.room_id = $1::uuid AND ${LIVE_BOOKING} AND b.check_in < $3::date AND b.check_out > $2::date LIMIT 1`,
+      [rid, stay.checkIn, stay.checkOut],
+    )
+    if (clash[0]) throw err(409, `Booking ${clash[0].reference} falls in those dates`)
+    return clientQuery<{ id: string }>(
+      client,
+      `INSERT INTO guesthouse_blocks (room_id, start_date, end_date, reason) VALUES ($1::uuid, $2::date, $3::date, $4) RETURNING id::text AS id`,
+      [rid, stay.checkIn, stay.checkOut, str(body.reason, 200) || null],
+    )
+  })
   return { id: rows[0].id, roomId: rid, startDate: stay.checkIn, endDate: stay.checkOut, reason: str(body.reason, 200) || null }
 }
 
@@ -1163,11 +1251,19 @@ export async function actOnGuestBooking(actor: DemoActor, id: string, body: Reco
     if (!t) throw err(400, 'Unknown action')
     if (!t.from.includes(b.status)) throw err(400, `A ${b.status.replace('_', ' ')} booking cannot be changed that way`)
     if (action === 'check_in' && toDate(b.check_in) > today()) throw err(400, 'Check-in is only possible from the arrival date')
-    await query(
+    // The status is checked again in the UPDATE: the guest may have cancelled since the read above.
+    const moved = await query<{ id: string }>(
       `UPDATE guesthouse_bookings SET status = $2, expires_at = NULL, updated_at = NOW(),
-         host_note = COALESCE($3, host_note) WHERE id = $1::uuid`,
-      [b.id, t.to, note],
+         host_note = COALESCE($3, host_note) WHERE id = $1::uuid AND status = ANY($4::text[]) RETURNING id::text AS id`,
+      [b.id, t.to, note, t.from],
     )
+    if (!moved[0]) throw err(409, 'This booking was changed a moment ago. Refresh and try again.')
+    // A guest with an account gets the in-app notification below (which is also
+    // emailed); a guest without one only has their email address.
+    if (!b.guest_user_id && ['confirm', 'decline', 'cancel'].includes(action)) {
+      const kind: GuestMailKind = action === 'confirm' ? 'confirmed' : action === 'decline' ? 'declined' : 'cancelled_by_host'
+      await emailGuest(kind, toBooking({ ...b, status: t.to }), { note })
+    }
     if (b.guest_user_id && ['confirm', 'decline', 'cancel'].includes(action)) {
       await notifyUsers([b.guest_user_id], {
         clientId: b.client_id,

@@ -122,7 +122,7 @@ export default function StayDetailPage() {
             <div><dt className="text-ink-400">Guests</dt><dd className="font-medium text-ink">{booked.guests}</dd></div>
             <div><dt className="text-ink-400">Total</dt><dd className="font-medium text-ink">{zar(booked.total)}</dd></div>
           </dl>
-          <p className="mt-6 text-xs text-ink-400">Keep your reference. Use it with {booked.guestEmail} to view or cancel this booking.</p>
+          <p className="mt-6 text-xs text-ink-400">We emailed these details to {booked.guestEmail}. Keep your reference: with that email address it opens and cancels this booking.</p>
           <div className="mt-4 flex justify-center gap-3">
             <Link to="/stays/bookings"><Button variant="secondary">Manage booking</Button></Link>
             <Link to="/stays"><Button>Browse more stays</Button></Link>

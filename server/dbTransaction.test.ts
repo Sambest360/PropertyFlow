@@ -1,12 +1,20 @@
 import { describe, expect, it, vi } from 'vitest'
 
 /** CR10 N3 (option a): server/db.ts threads one transaction through query(). Fake pg, no real database. */
-const log = vi.hoisted(() => ({ pool: [] as string[], client: [] as string[] }))
+const log = vi.hoisted(() => ({
+  pool: [] as string[],
+  client: [] as string[],
+  listeners: [] as Array<{ event: string; fn: (err: Error) => void }>,
+}))
 vi.hoisted(() => {
   process.env.DATABASE_URL = 'postgres://pf:pf@127.0.0.1:5432/pf_test'
 })
 vi.mock('pg', () => {
   class Pool {
+    on(event: string, fn: (err: Error) => void) {
+      log.listeners.push({ event, fn })
+      return this
+    }
     async query(sql: string) {
       log.pool.push(sql)
       return { rows: [] }
@@ -67,5 +75,14 @@ describe('db.ts: one transaction, afterCommit after the outer COMMIT', () => {
     await db.withTransaction(async () => undefined)
     await db.query('SELECT 1')
     expect(log.pool).toEqual(['SELECT 1'])
+  })
+  it("listens for the pool's 'error' event: a dropped idle connection must not end the process", async () => {
+    await import('./db.js')
+    const onError = log.listeners.find((l) => l.event === 'error')
+    expect(onError).toBeDefined()
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    expect(() => onError!.fn(new Error('terminating connection due to administrator command'))).not.toThrow()
+    expect(spy).toHaveBeenCalled()
+    spy.mockRestore()
   })
 })

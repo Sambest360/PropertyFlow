@@ -178,7 +178,7 @@ function ContractorPortalContent() {
             </div>
             <p className="text-sm text-ink-500">
               {labelOrReference(prop?.title, t.propertyId, 'Property')}
-              {previewOnly ? '' : ` · ${t.assetLabel}`}
+              {!previewOnly && t.assetLabel ? ` · ${t.assetLabel}` : ''}
               {!previewOnly && t.locationDetail ? ` · ${t.locationDetail}` : ''}
             </p>
             <p className={`text-sm leading-relaxed text-ink${previewOnly ? ' line-clamp-2' : ''}`}>

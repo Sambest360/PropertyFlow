@@ -35,6 +35,7 @@ import { propertyRefLabel } from '../lib/propertyRefs'
 import { daysLabel, renewalSnapshot, RENEWAL_PROMPT_DAYS, type RenewalSnapshot } from '../lib/renewals/renewalStatus'
 import { usePortalHydrating } from '../components/PortalHydrationGate'
 import { DataTableSkeleton } from '../components/loading/PageSkeleton'
+import { csvFileName, downloadCsv, toCsv } from '../lib/csv'
 
 const ICON_STROKE = 1.6
 const VIEW_KEY = 'propertyflow-leases-view'
@@ -440,6 +441,27 @@ export default function LeasesDirectory() {
     </button>
   )
 
+  /** The leases on screen (after search and filters), as a spreadsheet file. */
+  const exportCsv = () => {
+    const csv = toCsv(
+      ['Lease', 'Property', 'Tenant', 'Tenant email', 'Landlord', 'Start', 'End', 'Rent', 'Deposit', 'Status', 'Signing'],
+      filtered.map((r) => [
+        r.tenancy.id,
+        r.propertyTitle,
+        r.tenancy.tenantName,
+        r.tenancy.tenantEmail,
+        r.landlordName ?? '',
+        r.tenancy.startDate,
+        r.tenancy.endDate ?? '',
+        r.tenancy.rent,
+        r.tenancy.deposit,
+        r.tenancy.status,
+        r.signLabel,
+      ]),
+    )
+    downloadCsv(csvFileName('leases'), csv)
+  }
+
   return (
     <RequirePermission permission="occupants.view">
       <div className="animate-fade-in space-y-5">
@@ -457,7 +479,20 @@ export default function LeasesDirectory() {
                 Apply all due increases ({renewalCounts.increase})
               </Button>
             ) : (
-              <FieldHelp title="Renewals & escalation" body={RENEWALS_MODE_A_COPY} />
+              <div className="flex flex-wrap items-center gap-2">
+                {tab === 'leases' ? (
+                  <Button
+                    className="min-h-11"
+                    variant="secondary"
+                    disabled={filtered.length === 0}
+                    onClick={exportCsv}
+                    title="Download the leases shown below as a spreadsheet file"
+                  >
+                    Export CSV
+                  </Button>
+                ) : null}
+                <FieldHelp title="Renewals & escalation" body={RENEWALS_MODE_A_COPY} />
+              </div>
             )
           }
         />

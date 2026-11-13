@@ -27,6 +27,9 @@
 BEGIN;
 
 -- Wipe in dependency order (safe re-seed)
+-- The screening audit trail is append-only (a trigger blocks TRUNCATE). This demo
+-- seed wipes everything, so the guard is lifted for this one statement only.
+ALTER TABLE screening_check_audit DISABLE TRIGGER screening_check_audit_no_truncate;
 TRUNCATE TABLE
   automation_runs,
   automation_rules,
@@ -59,6 +62,7 @@ TRUNCATE TABLE
   client_lookup_configs,
   clients
 RESTART IDENTITY CASCADE;
+ALTER TABLE screening_check_audit ENABLE TRIGGER screening_check_audit_no_truncate;
 
 -- Demo password placeholder (bcrypt-shaped; NOT a verified real hash).
 -- Intended plaintext for docs: demo-password

@@ -44,6 +44,14 @@ export const pool = resolved.configured
     })
   : null
 
+// An idle connection that the database closes (restart, failover, network
+// drop) makes the pool emit 'error'. With no listener Node treats that as an
+// uncaught exception and the whole API process exits. The pool already
+// discards the broken client, so logging is all that is needed.
+pool?.on('error', (err) => {
+  console.error('[propertyflow-api] idle database connection lost:', err.message)
+})
+
 function requirePool(): pg.Pool {
   if (!pool) {
     const err = new Error(databaseConfigError || 'DATABASE_URL is not configured') as Error & {

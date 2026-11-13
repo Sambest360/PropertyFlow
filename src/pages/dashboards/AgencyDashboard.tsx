@@ -1,3 +1,4 @@
+import { joinParts } from '../../lib/joinParts'
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   AlertTriangle,
@@ -187,7 +188,7 @@ export function AgencyDashboard() {
         kind: 'ticket',
         id: t.id,
         title: t.title,
-        meta: `${prop?.title ?? t.assetLabel} · ${t.reportedBy}`,
+        meta: joinParts(prop?.title ?? t.assetLabel, t.reportedBy),
         status: t.status,
         date: t.openedAt,
         propertyId: t.propertyId,

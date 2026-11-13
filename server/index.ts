@@ -2701,6 +2701,14 @@ if (shouldListen) {
     void import('./photoStorage.js').then(({ moveOldPhotosToDisk }) => moveOldPhotosToDisk())
   })
 
+  // A promise nobody awaited that rejects (a background email, an import()
+  // chain) would otherwise end the Node process and drop every request in
+  // flight. Record it and keep serving.
+  process.on('unhandledRejection', (reason) => {
+    console.error('[propertyflow-api] unhandled rejection:', reason instanceof Error ? reason.stack ?? reason.message : reason)
+    captureServerError(reason, { route: 'unhandledRejection', status: 500 })
+  })
+
   process.on('SIGINT', async () => {
     await pool?.end()
     process.exit(0)

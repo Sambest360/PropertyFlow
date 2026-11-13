@@ -373,7 +373,8 @@ export async function grantApplyOverride(
   if (!unit) throw coded(404, 'NOT_FOUND', 'Unit not found')
   const who = await actorUuidAndClient(actor)
   const sameAgency = who.role === 'super_admin' || (who.clientId != null && who.clientId === unit.client_id)
-  const admin = who.role === 'super_admin' || (who.role === 'client_admin' && sameAgency)
+  const admin =
+    who.role === 'super_admin' || ((who.role === 'client_admin' || who.role === 'agent_admin') && sameAgency)
   const assignedAgent =
     (who.role === 'agent_admin' || who.role === 'ground_agent' || who.role === 'agent') &&
     unit.agent_id === who.userUuid &&
@@ -422,7 +423,10 @@ export async function listApplyOverrides(
   agencyRef: string | null,
 ): Promise<Array<Record<string, unknown>>> {
   const who = await actorUuidAndClient(actor)
-  if (who.role !== 'super_admin' && who.role !== 'client_admin') {
+  // agent_admin is the agency admin people actually sign in as (client_admin
+  // is the principal): both run Application journey settings, which lists
+  // these. Scope stays the caller's own agency (clientId below).
+  if (who.role !== 'super_admin' && who.role !== 'client_admin' && who.role !== 'agent_admin') {
     throw coded(403, 'FORBIDDEN', 'Only an agency admin can view apply overrides')
   }
   let clientId = who.clientId
