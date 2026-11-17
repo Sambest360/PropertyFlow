@@ -1068,6 +1068,7 @@ export const marketplaceFooter = [
     title: 'Landlords & agencies',
     links: [
       ['List with us', '/register?role=landlord'],
+      ['Pricing', '/pricing'],
       ['Sign in', '/login'],
       ['Create an account', '/register'],
       ['Talk to us', '/contact'],

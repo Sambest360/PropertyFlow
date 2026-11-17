@@ -34,6 +34,7 @@ const CalculatorsPage = lazy(() => import('./pages/market/CalculatorsPage'))
 const PrivacyPage = lazy(() => import('./pages/legal/PrivacyPage'))
 const TermsPage = lazy(() => import('./pages/legal/TermsPage'))
 const ContactPage = lazy(() => import('./pages/ContactPage'))
+const PricingPage = lazy(() => import('./pages/market/PricingPage'))
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 const SeoLandingPage = lazy(() => import('./pages/market/SeoLandingPage'))
 const StaysBrowsePage = lazy(() => import('./pages/stays/StaysBrowsePage'))
@@ -311,6 +312,14 @@ export default function App() {
                 />
                 {/* /help: signed-in users get the workspace Help page, visitors the contact page. */}
                 <Route path="help" element={<PublicHelpRedirect />} />
+                <Route
+                  path="pricing"
+                  element={
+                    <Suspense fallback={<PageFallback />}>
+                      <PricingPage />
+                    </Suspense>
+                  }
+                />
                 <Route
                   path="contact"
                   element={
