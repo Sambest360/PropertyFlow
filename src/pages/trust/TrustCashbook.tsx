@@ -23,6 +23,7 @@ import {
 import { sweetSuccess, sweetError } from '../../lib/sweetAlert'
 import { usePortalHydrating } from '../../components/PortalHydrationGate'
 import { DataTableSkeleton } from '../../components/loading/PageSkeleton'
+import { BankReconciliationCard } from '../../components/trust/BankReconciliationCard'
 
 function formatCents(cents: number): string {
   return formatZAR(cents / 100)
@@ -77,6 +78,7 @@ export default function TrustCashbook() {
   const [dateTo, setDateTo] = useState('')
   const [showFilters, setShowFilters] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [statementBalance, setStatementBalance] = useState<{ valueDate: string; cents: number } | null>(null)
 
   const agencyId = user?.agencyId
 
@@ -148,12 +150,13 @@ export default function TrustCashbook() {
         )
         return
       }
+      if (result.closingBalance) setStatementBalance(result.closingBalance)
       const parts = [
-        `Imported ${result.imported} unallocated receipt(s)`,
+        `Imported ${result.imported} transaction(s); money in waits on Unallocated receipts`,
         result.duplicates ? `${result.duplicates} duplicate(s) skipped` : null,
         TRUST_CSV_NON_PRODUCTION_LABEL,
       ].filter(Boolean)
-      await sweetSuccess('Template CSV imported', parts.join(' — '))
+      await sweetSuccess('CSV imported', parts.join(' — '))
     } finally {
       setBusy(false)
       if (fileRef.current) fileRef.current.value = ''
@@ -164,7 +167,7 @@ export default function TrustCashbook() {
     <DashboardPage>
       <PageHeader
         title="Trust Cashbook"
-        subtitle="In-app trust cashbook — template CSV import/export"
+        subtitle="In-app trust cashbook — bank statement or template CSV import/export"
         actions={
           <div className="flex flex-col items-end gap-1">
             <div className="flex flex-wrap justify-end gap-2">
@@ -186,15 +189,15 @@ export default function TrustCashbook() {
                 size="sm"
                 disabled={busy || !user?.agencyId}
                 onClick={() => fileRef.current?.click()}
-                title="Manual template CSV import — not a live bank feed"
+                title="Upload a bank statement (CSV, OFX/QFX or QIF) or the Lekaya template — not a live bank feed"
               >
                 <Upload className="h-4 w-4" />
-                Import Template CSV
+                Import statement
               </Button>
               <input
                 ref={fileRef}
                 type="file"
-                accept=".csv,text/csv"
+                accept=".csv,.ofx,.qfx,.qif,.txt,text/csv"
                 className="hidden"
                 onChange={(e) => {
                   const f = e.target.files?.[0]
@@ -203,7 +206,7 @@ export default function TrustCashbook() {
               />
             </div>
             <p className="max-w-sm text-right text-[11px] leading-snug text-ink-400">
-              Manual/template CSV only — {TRUST_CSV_NON_PRODUCTION_LABEL}
+              Bank statement (CSV, OFX/QFX, QIF) or template — {TRUST_CSV_NON_PRODUCTION_LABEL}
             </p>
           </div>
         }
@@ -226,6 +229,14 @@ export default function TrustCashbook() {
           </p>
         </Card>
       </div>
+
+      {agencyId && (
+        <BankReconciliationCard
+          agencyId={agencyId}
+          prefill={statementBalance}
+          refreshKey={state.trustTransactions?.length ?? 0}
+        />
+      )}
 
       <Card className="p-4">
         <div className="flex items-center justify-between">

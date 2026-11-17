@@ -1248,6 +1248,34 @@ app.get('/api/trust/deposits/:id/inspection-deductions', async (c) => {
   }
 })
 
+/** Trust cashbook vs bank: reconciliation and import de-duplication (server/trustBankRoutes.ts). */
+app.get('/api/trust/reconciliation', async (c) => {
+  try {
+    const actor = await requireActor(c)
+    const { getTrustReconciliation } = await import('./trustBankRoutes.js')
+    return c.json(await getTrustReconciliation(actor, c.req.query('asOf'), c.req.query('agencyId')))
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    return c.json({ error: 'trust_reconciliation_failed', message }, errStatus(err))
+  }
+})
+for (const [path, fn] of [
+  ['/api/trust/reconciliation', 'recordTrustReconciliation'],
+  ['/api/trust/existing-partner-ids', 'existingPartnerTxnIds'],
+] as const) {
+  app.post(path, async (c) => {
+    try {
+      const body = ((await c.req.json().catch(() => ({}))) ?? {}) as Record<string, unknown>
+      const actor = await requireActor(c)
+      const routes = await import('./trustBankRoutes.js')
+      return c.json(await routes[fn](actor, body))
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      return c.json({ error: 'trust_bank_failed', message }, errStatus(err))
+    }
+  })
+}
+
 /**
  * Listing / ticket photos → this server's disk (server/photoStorage.ts). Any
  * signed-in user may upload one compressed photo and gets its public URL; 503

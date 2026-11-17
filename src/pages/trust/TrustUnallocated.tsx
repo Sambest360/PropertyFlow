@@ -14,6 +14,8 @@ import { FieldHelp } from '../../components/onboarding/FieldHelp'
 import { TRUST_MODE_A_COPY } from '../../lib/trust/modeA'
 import { sweetSuccess, sweetError } from '../../lib/sweetAlert'
 import { labelOrReference } from '../../lib/displayIds'
+import { suggestReceiptMatches } from '../../lib/trust/matchReceipt'
+import { buildTenancyArrears, todayYmd } from '../../lib/trust/tenancyArrears'
 
 function formatCents(cents: number): string {
   return formatZAR(cents / 100)
@@ -43,6 +45,7 @@ export default function TrustUnallocated() {
       state.trustTransactions?.filter(
         (t) =>
           t.status === 'unallocated' &&
+          t.direction === 'in' &&
           (!agencyId || t.agencyId === agencyId)
       ) ?? [],
     [state.trustTransactions, agencyId]
@@ -56,6 +59,17 @@ export default function TrustUnallocated() {
           (!agencyId || t.agencyId === agencyId)
       ) ?? [],
     [state.tenancies, agencyId]
+  )
+
+  const owedByOccupancy = useMemo(
+    () =>
+      new Map(
+        buildTenancyArrears({ tenancies: occupancies, payments: state.payments, asOf: todayYmd() }).map((r) => [
+          r.occupancyId,
+          r.arrearsCents,
+        ]),
+      ),
+    [occupancies, state.payments],
   )
 
   const filteredOccupancies = useMemo(() => {
@@ -81,6 +95,11 @@ export default function TrustUnallocated() {
   const remaining = selectedTransaction
     ? selectedTransaction.amountCents - totalAllocated
     : 0
+
+  const suggestions = useMemo(
+    () => (selectedTransaction ? suggestReceiptMatches(selectedTransaction, occupancies, owedByOccupancy) : []),
+    [selectedTransaction, occupancies, owedByOccupancy],
+  )
 
   function handleAddAllocation(occupancyId: string, amount: number) {
     setAllocations((prev) => [...prev, { occupancyId, bucketCode: 'rent', amount }])
@@ -217,6 +236,36 @@ export default function TrustUnallocated() {
                   {formatCents(selectedTransaction.amountCents)}
                 </p>
               </div>
+
+              {suggestions.length > 0 && (
+                <div className="mb-4">
+                  <p className="mb-2 text-sm font-medium text-ink-600">Suggested matches</p>
+                  <div className="space-y-2">
+                    {suggestions.map((m) => {
+                      const occ = occupancies.find((o) => o.id === m.occupancyId)
+                      if (!occ) return null
+                      return (
+                        <button
+                          key={m.occupancyId}
+                          type="button"
+                          onClick={() => handleAddAllocation(occ.id, Math.min(m.suggestedCents, remaining))}
+                          disabled={remaining <= 0}
+                          aria-label={`Allocate ${formatCents(Math.min(m.suggestedCents, remaining))} to ${occ.tenantName}`}
+                          className="flex min-h-11 w-full cursor-pointer items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50/50 p-2 text-left transition-colors duration-150 hover:bg-emerald-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium text-ink">{occ.tenantName}</span>
+                            <span className="block truncate text-xs text-ink-500">{m.reasons.join(' · ')}</span>
+                          </span>
+                          <span className="shrink-0 text-sm font-medium text-emerald-700">
+                            {formatCents(Math.min(m.suggestedCents, remaining))}
+                          </span>
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* Occupancy Search */}
               <div className="mb-4">

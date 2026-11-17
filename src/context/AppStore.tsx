@@ -1082,6 +1082,8 @@ type StoreContextValue = {
     duplicates: number
     parseErrors: string[]
     batchId?: string
+    /** Statement balance after the latest row, when the file had a balance column. */
+    closingBalance?: { valueDate: string; cents: number } | null
   }>
   /** DQ-M2: create/upsert a held deposit (durable Mode A persist). */
   upsertHeldDeposit: (params: {
@@ -2371,7 +2373,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       csvText: string
     }) => {
       const {
-        parseTrustTemplateCsv,
+        parseStatementFile,
         filterNewTrustCsvRows,
         buildTrustCsvPartnerTxnId,
         TRUST_CSV_NON_PRODUCTION_LABEL,
@@ -2386,7 +2388,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           parseErrors: [] as string[],
         }
       }
-      const parsed = parseTrustTemplateCsv(params.csvText)
+      const parsed = parseStatementFile(params.csvText)
       if (parsed.rows.length === 0) {
         return {
           ok: false,
@@ -2399,7 +2401,25 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
       const agencyTxns = stateRef.current.trustTransactions.filter(
         (t) => t.agencyId === params.agencyId,
       )
-      const { fresh, duplicateCount } = filterNewTrustCsvRows(parsed.rows, agencyTxns)
+      // The bootstrap holds only recent rows; ask the server which keys it already has.
+      const { fetchExistingPartnerTxnIds } = await import('../lib/api/trustBankApi')
+      const known = await fetchExistingPartnerTxnIds(
+        params.agencyId,
+        parsed.rows.map((r) => buildTrustCsvPartnerTxnId(r.idempotencyKey)),
+      )
+      if (!known.ok) {
+        return {
+          ok: false,
+          error: `Could not check for rows imported before, so nothing was imported. ${known.error}`,
+          imported: 0,
+          duplicates: 0,
+          parseErrors: parsed.errors,
+        }
+      }
+      const { fresh, duplicateCount } = filterNewTrustCsvRows(parsed.rows, [
+        ...agencyTxns,
+        ...known.data.existing.map((partnerTxnId) => ({ partnerTxnId })),
+      ])
       if (fresh.length === 0) {
         return {
           ok: true,
@@ -2410,6 +2430,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
             duplicateCount > 0
               ? 'All rows were duplicates (idempotent skip)'
               : undefined,
+          closingBalance: parsed.closingBalance ?? null,
         }
       }
       const now = new Date().toISOString()
@@ -2438,7 +2459,8 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
           bankRef: row.bankRef || partnerTxnId,
           description: `${row.description} [${TRUST_CSV_NON_PRODUCTION_LABEL}]`,
           counterpartyHash: null,
-          status: 'unallocated' as const,
+          // Money out (payouts, bank fees) is not a receipt to allocate to a tenant.
+          status: row.direction === 'in' ? ('unallocated' as const) : ('recognised' as const),
           rawPayloadDocumentId: null,
           createdAt: now,
           updatedAt: now,
@@ -2481,7 +2503,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         }))
         if (saved.length > 0) {
           addActivity(
-            `Template CSV import: ${saved.length} of ${newTxns.length} receipt(s) saved from ${batch.filename}`,
+            `CSV import: ${saved.length} of ${newTxns.length} receipt(s) saved from ${batch.filename}`,
             actor.name,
             params.agencyId,
           )
@@ -2496,7 +2518,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         }
       }
       addActivity(
-        `Template CSV import: ${fresh.length} unallocated receipt(s) from ${batch.filename} (recorded in Lekaya, not yet matched to the bank)`,
+        `CSV import: ${fresh.length} transaction(s) from ${batch.filename} (recorded in Lekaya, not yet matched to the bank)`,
         actor.name,
         params.agencyId,
       )
@@ -2506,6 +2528,7 @@ export function AppStoreProvider({ children }: { children: ReactNode }) {
         duplicates: duplicateCount,
         parseErrors: parsed.errors,
         batchId,
+        closingBalance: parsed.closingBalance ?? null,
       }
     },
     [patch, addActivity, persistUpsert],
